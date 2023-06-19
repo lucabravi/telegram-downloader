@@ -26,6 +26,7 @@ def run():
         for download in downloads:
             try:
                 if running == 3:
+                    logging.info(f'Max simultaneous downloads reached ({running})')
                     break
                 Thread(target=downloadFile, args=(download,)).start()
                 running += 1
@@ -40,10 +41,13 @@ def downloadFile(d: Download):
 
     file_path = BASE_FOLDER + '/' + d.filename
     if os.path.exists(file_path):
-        sync_catch_rate_limit(
-            d.progress_message.edit, wait=True, text=dedent(f"""
+        text = f"""
             File with same name ({d.filename}) already present in current download directory.
-            Retry changing folder"""), parse_mode=ParseMode.MARKDOWN
+            Retry changing folder
+        """
+        logging.info(text)
+        sync_catch_rate_limit(
+            d.progress_message.edit, wait=True, text=dedent(text), parse_mode=ParseMode.MARKDOWN
         )
         running -= 1
         return
@@ -59,23 +63,27 @@ def downloadFile(d: Download):
     )
     if isinstance(result, str):
         speed = humanReadable(d.size / (d.last_call - d.started))
-        sync_catch_rate_limit(d.progress_message.edit, wait=True, text=dedent(f"""
-                    File downloaded:
-                    __{d.filename}__ 
-    
-                    Started at __{ctime(d.started)}__ 
-                    Finished at __{ctime(d.last_call)}__
-                    Average download speed: __{speed}/s__
-                """), parse_mode=ParseMode.MARKDOWN)
+        text = f"""
+            File downloaded:
+            __{d.filename}__ 
+
+            Started at __{ctime(d.started)}__ 
+            Finished at __{ctime(d.last_call)}__
+            Average download speed: __{speed}/s__
+        """
+        logging.info(text)
+        sync_catch_rate_limit(d.progress_message.edit, wait=True, text=dedent(text), parse_mode=ParseMode.MARKDOWN)
     running -= 1
 
 
 async def progress(received: int, total: int, download: Download):
     # This function is called every time that 1MB is downloaded
     if download.id in stop:
+        text = f"Download of __{download.filename}__ stopped!"
+        logging.info(text)
         await catch_rate_limit(download.progress_message.edit,
                                wait=False,
-                               text=f"Download of __{download.filename}__ stopped!",
+                               text=text,
                                parse_mode=ParseMode.MARKDOWN,
                                )
         await app.stop_transmission()
@@ -93,16 +101,18 @@ async def progress(received: int, total: int, download: Download):
         download.last_call = now - 1
     speed = (1024 ** 2) / (now - download.last_call)
     avg_speed = received / (now - download.started)
+    text = f"""
+        Downloading: __{download.filename}__
+
+        Downloaded __{humanReadable(received)}__ of __{humanReadable(total)}__ (__{percent:.2f}%__)
+        Current download speed: __{humanReadable(speed)}/s__
+        Average download speed: __{humanReadable(avg_speed)}/s__  
+    """
+    logging.debug(text)
     await catch_rate_limit(
         download.progress_message.edit,
         wait=False,
-        text=dedent(f'''
-                Downloading: __{download.filename}__
-    
-                Downloaded __{humanReadable(received)}__ of __{humanReadable(total)}__ (__{percent:.2f}%__)
-                Current download speed: __{humanReadable(speed)}/s__
-                Average download speed: __{humanReadable(avg_speed)}/s__  
-            '''),
+        text=dedent(text),
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("Stop", callback_data=f"stop {download.id}")
@@ -115,4 +125,6 @@ async def progress(received: int, total: int, download: Download):
 async def stopDownload(_, callback: CallbackQuery):
     id = int(callback.data.split()[-1])
     stop.append(id)
-    await callback.answer("Stopping download...")
+    text = "Stopping download..."
+    logging.info(text)
+    await callback.answer(text)

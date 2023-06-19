@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from os.path import isfile
 from random import choices, randint
 from string import ascii_letters, digits
@@ -18,7 +19,8 @@ async def addFile(_, msg: Message):
     caption = msg.caption or ""
 
     if folder.autofolder() and msg.forward_from_chat.id < 0 and msg.forward_from_chat.title.strip() != '':
-        foldername = "".join(c for c in msg.forward_from_chat.title if c.isalnum() or c in folder.keepcharacters).strip()
+        foldername = "".join(
+            c for c in msg.forward_from_chat.title if c.isalnum() or c in folder.keepcharacters).strip()
         filename = foldername + '/'
     else:
         filename = folder.get() + '/'
@@ -32,9 +34,13 @@ async def addFile(_, msg: Message):
         except AttributeError:
             filename += ''.join(choices(ascii_letters + digits, k=12))
     if isfile(filename):
-        await catch_rate_limit(msg.reply, text="File already exists!", quote=True)
+        text = "File already exists!"
+        logging.info(text)
+        await catch_rate_limit(msg.reply, text=text, quote=True)
         return
-    waiting = await catch_rate_limit(msg.reply, text=f"File __{filename}__ added to list.",
+    text = f"File __{filename}__ added to list."
+    logging.info(text)
+    waiting = await catch_rate_limit(msg.reply, text=text,
                                      quote=True,
                                      parse_mode=ParseMode.MARKDOWN)
     downloads.append(Download(
