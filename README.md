@@ -71,3 +71,24 @@ docker run -d \
     -e ADMINS="@yourTelegramUsername" \
     telegram-downloader
 ```
+
+## Docker compose run
+
+With docker compose it is even easier to run this bot, just enter you env variables on docker-compose.yml and run
+
+```bash
+docker compose build && docker compose up
+```
+
+To start the service in deatched mode
+
+```bash
+docker compose build && docker compose up -d
+```
+
+
+To stop the service
+```bash
+docker compose down
+```
+
