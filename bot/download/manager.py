@@ -1,3 +1,5 @@
+import logging
+import os.path
 from textwrap import dedent
 from time import ctime, time, sleep
 from typing import List
@@ -29,12 +31,23 @@ def run():
                 running += 1
                 downloads.remove(download)
             except Exception as e:
-                print(e)
+                logging.error(e)
         sleep(1)
 
 
 def downloadFile(d: Download):
     global running
+
+    file_path = BASE_FOLDER + '/' + d.filename
+    if os.path.exists(file_path):
+        sync_catch_rate_limit(
+            d.progress_message.edit, wait=True, text=dedent(f"""
+            File with same name ({d.filename}) already present in current download directory.
+            Retry changing folder"""), parse_mode=ParseMode.MARKDOWN
+        )
+        running -= 1
+        return
+
     sync_catch_rate_limit(d.progress_message.edit, wait=False, text=f"Downloading __{d.filename}__...",
                           parse_mode=ParseMode.MARKDOWN)
     d.started = time()
@@ -51,7 +64,7 @@ def downloadFile(d: Download):
     
                     Downloaded started at __{ctime(d.started)}__ and finished at __{ctime(d.last_call)}__
                     It's an average speed of __{speed}/s__
-                """, ), parse_mode=ParseMode.MARKDOWN)
+                """), parse_mode=ParseMode.MARKDOWN)
     running -= 1
 
 

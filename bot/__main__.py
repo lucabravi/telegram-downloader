@@ -1,3 +1,4 @@
+import logging
 from threading import Thread
 
 from pyrogram import idle
@@ -23,7 +24,7 @@ app.add_handler(MessageHandler(
 app.add_handler(MessageHandler(
     checkAdmins(commands.useFolder),
     command('use')
-    ))
+))
 app.add_handler(MessageHandler(
     checkAdmins(commands.leaveFolder),
     command('leave')
@@ -35,10 +36,12 @@ app.add_handler(MessageHandler(
 app.add_handler(CallbackQueryHandler(download.manager.stopDownload))
 
 app.start()
-print("Bot started!")
-print("Press CTRL+\\ to stop...")
+logging.info("Bot started!")
+logging.info("Press CTRL+\\ to stop...")
+
 t = Thread(target=download.manager.run)
 t.start()
 idle()
 t.join()
+
 app.stop()
