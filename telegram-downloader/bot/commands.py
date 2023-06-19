@@ -29,12 +29,25 @@ async def usage(_, msg: Message):
                            parse_mode=ParseMode.MARKDOWN)
 
 
-async def botHelp(_, msg: Message):
+async def bot_help(_, msg: Message):
     await catch_rate_limit(msg.reply, text=dedent(f"""
     /usage | show disk usage
     /cd __foldername__ | choose the subfolder where to download the files
     /cd .. | go to root foolder
+    /autofolder | put downloads on a subfolder named after the forwarded original group
     """))
+
+
+async def use_autofolder(_, msg: Message):
+    folder.set('.')
+    folder.autofolder(not folder.autofolder())
+    await  catch_rate_limit(
+        msg.reply,
+        text=dedent(f"""
+        Use autofolder {'enabled' if folder.autofolder() else 'disabled'}.
+        Current folder resetted to root.
+        """)
+    )
 
 
 async def use_folder(_, msg: Message):
@@ -61,5 +74,3 @@ async def use_folder(_, msg: Message):
         return
     folder.set(newFolder)
     await catch_rate_limit(msg.reply, text="Ok, send me files now and I will put it on this folder.")
-
-
