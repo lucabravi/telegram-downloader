@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from os import mkdir
 from textwrap import dedent
 
@@ -11,42 +12,51 @@ from .rate_limiter import catch_rate_limit
 
 
 async def start(_, msg: Message):
+    text = dedent("""
+        Hello!
+        Send me a file and I will download it to my server.
+        If you need help send /help
+    """)
+    logging.info(text)
     await catch_rate_limit(
         msg.reply,
-        text=dedent("""
-                Hello!
-                Send me a file and I will download it to my server.
-                If you need help send /help
-            """))
+        text=text)
 
 
 async def usage(_, msg: Message):
     u = sysinfo.diskUsage(DL_FOLDER)
+    text = dedent(f"""
+        Disk usage: __{u.used}__ / __{u.capacity}__ (__{u.percent}__)
+        Free: __{u.free}__
+    """)
+    logging.info(text)
     await catch_rate_limit(msg.reply,
-                           text=dedent(f"""
-                           Disk usage: __{u.used}__ / __{u.capacity}__ (__{u.percent}__)
-                           Free: __{u.free}__"""),
+                           text=text,
                            parse_mode=ParseMode.MARKDOWN)
 
 
 async def bot_help(_, msg: Message):
-    await catch_rate_limit(msg.reply, text=dedent(f"""
-    /usage | show disk usage
-    /cd __foldername__ | choose the subfolder where to download the files
-    /cd .. | go to root foolder
-    /autofolder | put downloads on a subfolder named after the forwarded original group
-    """))
+    text = dedent(f"""
+        /usage | show disk usage
+        /cd __foldername__ | choose the subfolder where to download the files
+        /cd .. | go to root foolder
+        /autofolder | put downloads on a subfolder named after the forwarded original group
+    """)
+    logging.info(text)
+    await catch_rate_limit(msg.reply, text=text)
 
 
 async def use_autofolder(_, msg: Message):
     folder.set('.')
     folder.autofolder(not folder.autofolder())
-    await  catch_rate_limit(
-        msg.reply,
-        text=dedent(f"""
+    text = dedent(f"""
         Use autofolder {'enabled' if folder.autofolder() else 'disabled'}.
         Current folder resetted to root.
-        """)
+    """)
+    logging.info(text)
+    await  catch_rate_limit(
+        msg.reply,
+        text=text
     )
 
 
@@ -60,9 +70,11 @@ async def use_folder(_, msg: Message):
         return
 
     if '..' in newFolder:
+        text = "Two dots is not allowed on the folder name!"
+        logging.info(text)
         await catch_rate_limit(
             msg.reply,
-            text="Two dots is not allowed on the folder name!",
+            text=text,
         )
         return
     try:
@@ -70,7 +82,14 @@ async def use_folder(_, msg: Message):
     except FileExistsError:
         pass
     except Exception as err:
-        await catch_rate_limit(msg.reply, text=f"Failed to create folder: {err}")
+        text = f"Failed to create folder: {err}"
+        logging.warning(text)
+        await catch_rate_limit(msg.reply, text=text)
         return
     folder.set(newFolder)
-    await catch_rate_limit(msg.reply, text="Ok, send me files now and I will put it on this folder.")
+    text = dedent(f"""
+        Ok, send me files now and I will put it on this folder:
+        {folder.get()}
+    """)
+    logging.info(text)
+    await catch_rate_limit(msg.reply, text=text)

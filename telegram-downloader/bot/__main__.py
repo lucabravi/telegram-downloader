@@ -39,7 +39,7 @@ app.add_handler(CallbackQueryHandler(download.manager.stopDownload))
 
 app.start()
 logging.info("Bot started!")
-logging.info("Press CTRL+\\ to stop...")
+logging.info("Press CTRL+Z to stop...")
 
 t = Thread(target=download.manager.run)
 t.start()
