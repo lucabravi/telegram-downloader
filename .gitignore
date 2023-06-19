@@ -1,5 +1,6 @@
 # Folders
 .venv/
+.idea/
 __pycache__/
 test/
 

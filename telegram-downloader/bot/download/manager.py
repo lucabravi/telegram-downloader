@@ -112,4 +112,4 @@ async def progress(received: int, total: int, download: Download):
 async def stopDownload(_, callback: CallbackQuery):
     id = int(callback.data.split()[-1])
     stop.append(id)
-    await callback.answer("Stopping...")
+    await callback.answer("Stopping download...")

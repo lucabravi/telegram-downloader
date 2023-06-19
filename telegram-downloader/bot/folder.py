@@ -1,6 +1,6 @@
 from . import BASE_FOLDER
 
-_dfolder: str = BASE_FOLDER
+_dfolder: str = ''
 
 
 def set(f: str):

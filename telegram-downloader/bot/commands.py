@@ -23,16 +23,29 @@ async def start(_, msg: Message):
 async def usage(_, msg: Message):
     u = sysinfo.diskUsage(DL_FOLDER)
     await catch_rate_limit(msg.reply,
-                           f"I'm running on a system with __{u.capacity}__ of storage and it's using __{u.used}__, this is __{u.percent}__ of the capacity, so it has __{u.free}__ free",
+                           text=dedent(f"""
+                           Disk usage: __{u.used}__ / __{u.capacity}__ (__{u.percent}__)
+                           Free: __{u.free}__"""),
                            parse_mode=ParseMode.MARKDOWN)
 
 
 async def botHelp(_, msg: Message):
-    await catch_rate_limit(msg.reply, "// TODO")
+    await catch_rate_limit(msg.reply, text=dedent(f"""
+    /usage | show disk usage
+    /cd __foldername__ | choose the subfolder where to download the files
+    /cd .. | go to root foolder
+    """))
 
 
-async def useFolder(_, msg: Message):
+async def use_folder(_, msg: Message):
     newFolder = ' '.join(msg.text.split()[1:])
+    print(newFolder)
+
+    if newFolder == '..' or '':
+        folder.set('.')
+        await catch_rate_limit(msg.reply, text="I'm in the root folder")
+        return
+
     if '..' in newFolder:
         await catch_rate_limit(
             msg.reply,
@@ -50,6 +63,3 @@ async def useFolder(_, msg: Message):
     await catch_rate_limit(msg.reply, text="Ok, send me files now and I will put it on this folder.")
 
 
-async def leaveFolder(_, msg: Message):
-    folder.set('.')
-    await catch_rate_limit(msg.reply, text="I'm in the root folder again")
