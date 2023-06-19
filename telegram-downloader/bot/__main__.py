@@ -14,7 +14,7 @@ app.add_handler(MessageHandler(
     command('start')
 ))
 app.add_handler(MessageHandler(
-    checkAdmins(commands.botHelp),
+    checkAdmins(commands.bot_help),
     command('help')
 ))
 app.add_handler(MessageHandler(
@@ -24,6 +24,11 @@ app.add_handler(MessageHandler(
 app.add_handler(MessageHandler(
     checkAdmins(commands.use_folder),
     command('cd')
+))
+
+app.add_handler(MessageHandler(
+    checkAdmins(commands.use_autofolder),
+    command('autofolder')
 ))
 
 app.add_handler(MessageHandler(

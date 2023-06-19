@@ -60,10 +60,12 @@ def downloadFile(d: Download):
     if isinstance(result, str):
         speed = humanReadable(d.size / (d.last_call - d.started))
         sync_catch_rate_limit(d.progress_message.edit, wait=True, text=dedent(f"""
-                    File __{d.filename}__ downloaded.
+                    File downloaded:
+                    __{d.filename}__ 
     
-                    Downloaded started at __{ctime(d.started)}__ and finished at __{ctime(d.last_call)}__
-                    It's an average speed of __{speed}/s__
+                    Started at __{ctime(d.started)}__ 
+                    Finished at __{ctime(d.last_call)}__
+                    Average download speed: __{speed}/s__
                 """), parse_mode=ParseMode.MARKDOWN)
     running -= 1
 
@@ -98,7 +100,8 @@ async def progress(received: int, total: int, download: Download):
                 Downloading: __{download.filename}__
     
                 Downloaded __{humanReadable(received)}__ of __{humanReadable(total)}__ (__{percent:.2f}%__)
-                __{humanReadable(speed)}/s__ or __{humanReadable(avg_speed)}/s__ average since start
+                Current download speed: __{humanReadable(speed)}/s__
+                Average download speed: __{humanReadable(avg_speed)}/s__  
             '''),
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=InlineKeyboardMarkup([[
