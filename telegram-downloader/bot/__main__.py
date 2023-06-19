@@ -22,13 +22,10 @@ app.add_handler(MessageHandler(
     command('usage')
 ))
 app.add_handler(MessageHandler(
-    checkAdmins(commands.useFolder),
-    command('use')
+    checkAdmins(commands.use_folder),
+    command('cd')
 ))
-app.add_handler(MessageHandler(
-    checkAdmins(commands.leaveFolder),
-    command('leave')
-))
+
 app.add_handler(MessageHandler(
     checkAdmins(download.handler.addFile),
     document | media

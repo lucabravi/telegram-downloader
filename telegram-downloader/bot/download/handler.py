@@ -26,7 +26,7 @@ async def addFile(_, msg: Message):
         except AttributeError:
             filename += ''.join(choices(ascii_letters+digits, k=12))
     if isfile(filename):
-        await catch_rate_limit(msg.reply, "File already exists!", quote=True)
+        await catch_rate_limit(msg.reply, text="File already exists!", quote=True)
         return
     waiting = await catch_rate_limit(msg.reply, text=f"File __{filename}__ added to list.",
                                quote=True,
