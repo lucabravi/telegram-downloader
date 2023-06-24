@@ -43,6 +43,10 @@ app.add_handler(MessageHandler(
     command('mkdir')
 ))
 
+app.add_handler(MessageHandler(
+    check_admins(commands.show_folder),
+    command('ls')
+))
 # endregion MANAGE PATH COMMANDS
 
 # region GET MEDIA

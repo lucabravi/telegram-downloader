@@ -28,6 +28,7 @@ async def bot_help(_, msg: Message):
         /cd __foldername__ | choose the subfolder where to download the files
         /cd | go to root foolder
         /autofolder | put downloads on a subfolder named after the forwarded original group
+        /ls | show folders and files in current directories
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text)
@@ -90,6 +91,20 @@ async def create_folder(_, msg: Message):
 
     text = dedent(f"""
         Folder {new_folder} created:
+        {vfs.get_current_dir_info()}
+    """)
+    logging.info(text)
+    await catch_rate_limit(msg.reply, text=text)
+
+
+async def show_folder(_, msg: Message):
+    directories, files = vfs.ls()
+
+    text = dedent(f"""
+        Path: {vfs.current_rel_path}:
+        ---
+        Folders: {len(directories)} | "{'","'.join(directories)}"
+        Files: {len(files)} | "{'","'.join(files)}"
         {vfs.get_current_dir_info()}
     """)
     logging.info(text)
