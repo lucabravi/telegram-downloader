@@ -12,6 +12,7 @@ from .. import app, BASE_FOLDER
 from ..rate_limiter import catch_rate_limit, sync_catch_rate_limit
 from ..util import humanReadable
 from .type import Download
+from .. import folder
 from threading import Thread
 
 downloads: List[Download] = []
@@ -126,5 +127,13 @@ async def stopDownload(_, callback: CallbackQuery):
     id = int(callback.data.split()[-1])
     stop.append(id)
     text = "Stopping download..."
+    logging.info(text)
+    await callback.answer(text)
+
+
+async def cd(_, callback: CallbackQuery):
+    new_folder = callback.data[3:].strip()
+    folder.set(new_folder)
+    text = f"Changing download folder to __{os.path.join(folder.get(), new_folder)}__"
     logging.info(text)
     await callback.answer(text)

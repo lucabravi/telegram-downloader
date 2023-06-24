@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from os import mkdir
 from textwrap import dedent
 
@@ -39,7 +40,7 @@ async def bot_help(_, msg: Message):
     text = dedent(f"""
         /usage | show disk usage
         /cd __foldername__ | choose the subfolder where to download the files
-        /cd .. | go to root foolder
+        /cd | go to root foolder
         /autofolder | put downloads on a subfolder named after the forwarded original group
     """)
     logging.info(text)
@@ -47,11 +48,10 @@ async def bot_help(_, msg: Message):
 
 
 async def use_autofolder(_, msg: Message):
-    folder.set('.')
+    folder.set('')
     folder.autofolder(not folder.autofolder())
     text = dedent(f"""
-        Use autofolder {'enabled' if folder.autofolder() else 'disabled'}.
-        Current folder resetted to root.
+        Use autofolder {'enabled' if folder.autofolder() else 'disabled'}
     """)
     logging.info(text)
     await  catch_rate_limit(
@@ -62,10 +62,9 @@ async def use_autofolder(_, msg: Message):
 
 async def use_folder(_, msg: Message):
     newFolder = ' '.join(msg.text.split()[1:])
-    print(newFolder)
 
-    if newFolder == '..' or '':
-        folder.set('.')
+    if newFolder in ['..', '', '\'']:
+        folder.set('')
         await catch_rate_limit(msg.reply, text="I'm in the root folder")
         return
 
@@ -77,16 +76,14 @@ async def use_folder(_, msg: Message):
             text=text,
         )
         return
-    try:
-        mkdir(BASE_FOLDER + '/' + newFolder)
-    except FileExistsError:
-        pass
-    except Exception as err:
-        text = f"Failed to create folder: {err}"
-        logging.warning(text)
-        await catch_rate_limit(msg.reply, text=text)
+
+    ok, err = folder.mkdir(newFolder)
+    if not ok:
+        logging.warning(err)
+        await catch_rate_limit(msg.reply, text=err)
         return
-    folder.set(newFolder)
+
+    folder.set(os.path.join(folder.get(), newFolder))
     text = dedent(f"""
         Ok, send me files now and I will put it on this folder:
         {folder.get()}

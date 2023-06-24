@@ -1,0 +1,22 @@
+version: '3'
+services:
+  telegram-downloader:
+    build:
+      context: ./telegram-downloader
+      dockerfile: ../Dockerfile
+    image: telegram-downloader
+    container_name: telegram-downloader
+    volumes:
+      - ./data:/data
+    #environment:
+    #  - TELEGRAM_API_ID=
+    #  - TELEGRAM_API_HASH=
+    #  - BOT_TOKEN=
+    #  - ADMINS=@
+    #  - ALLOW_ROOT_FOLDER=True
+    restart: "no"
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
