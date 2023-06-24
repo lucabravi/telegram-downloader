@@ -105,8 +105,8 @@ async def show_folder(_, msg: Message):
     text = dedent(f"""
         Path: {'/' if vfs.current_rel_path == '.' else vfs.current_rel_path}
         ---
-        Folders: {directories if directories != '' else ''}
-        Files: {files if files != '' else ''}
+        Folders: {directories if directories != '' else '0'}
+        Files: {files if files != '' else '0'}
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text)
