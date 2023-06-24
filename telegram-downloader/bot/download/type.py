@@ -5,6 +5,7 @@ from pyrogram.types import Message
 class Download:
     id: int
     filename: str
+    filepath: str
     from_message: Message
     added: float
     progress_message: Message | None = None

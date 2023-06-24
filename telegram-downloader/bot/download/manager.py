@@ -8,11 +8,11 @@ from pyrogram.enums import ParseMode
 from pyrogram.types import (CallbackQuery, InlineKeyboardButton,
                             InlineKeyboardMarkup)
 
-from .. import app, BASE_FOLDER
+from .. import app
 from ..rate_limiter import catch_rate_limit, sync_catch_rate_limit
-from ..util import humanReadable
+from ..util import human_readable
 from .type import Download
-from .. import folder
+from ..manage_path import vfs
 from threading import Thread
 
 downloads: List[Download] = []
@@ -40,10 +40,10 @@ def run():
 def downloadFile(d: Download):
     global running
 
-    file_path = BASE_FOLDER + '/' + d.filename
+    file_path = os.path.join(vfs.root, d.filepath)
     if os.path.exists(file_path):
         text = f"""
-            File with same name ({d.filename}) already present in current download directory.
+            File with same name ({d.filepath}) already present in current download directory.
             Retry changing folder
         """
         logging.info(text)
@@ -53,20 +53,20 @@ def downloadFile(d: Download):
         running -= 1
         return
 
-    sync_catch_rate_limit(d.progress_message.edit, wait=False, text=f"Downloading __{d.filename}__...",
+    sync_catch_rate_limit(d.progress_message.edit, wait=False, text=f"Downloading __{d.filepath}__...",
                           parse_mode=ParseMode.MARKDOWN)
     d.started = time()
     result = app.download_media(
         message=d.from_message,
-        file_name=BASE_FOLDER + '/' + d.filename,
+        file_name=file_path,
         progress=progress,
         progress_args=tuple([d])
     )
     if isinstance(result, str):
-        speed = humanReadable(d.size / (d.last_call - d.started))
+        speed = human_readable(d.size / (d.last_call - d.started))
         text = f"""
             File downloaded:
-            __{d.filename}__ 
+            __{d.filepath}__ 
 
             Started at __{ctime(d.started)}__ 
             Finished at __{ctime(d.last_call)}__
@@ -80,7 +80,7 @@ def downloadFile(d: Download):
 async def progress(received: int, total: int, download: Download):
     # This function is called every time that 1MB is downloaded
     if download.id in stop:
-        text = f"Download of __{download.filename}__ stopped!"
+        text = f"Download of __{download.filepath}__ stopped!"
         logging.info(text)
         await catch_rate_limit(download.progress_message.edit,
                                wait=False,
@@ -103,11 +103,11 @@ async def progress(received: int, total: int, download: Download):
     speed = (1024 ** 2) / (now - download.last_call)
     avg_speed = received / (now - download.started)
     text = f"""
-        Downloading: __{download.filename}__
+        Downloading: __{download.filepath}__
 
-        Downloaded __{humanReadable(received)}__ of __{humanReadable(total)}__ (__{percent:.2f}%__)
-        Current download speed: __{humanReadable(speed)}/s__
-        Average download speed: __{humanReadable(avg_speed)}/s__  
+        Downloaded __{human_readable(received)}__ of __{human_readable(total)}__ (__{percent:.2f}%__)
+        Current download speed: __{human_readable(speed)}/s__
+        Average download speed: __{human_readable(avg_speed)}/s__  
     """
     logging.debug(text)
     await catch_rate_limit(
@@ -133,7 +133,29 @@ async def stopDownload(_, callback: CallbackQuery):
 
 async def cd(_, callback: CallbackQuery):
     new_folder = callback.data[3:].strip()
-    folder.set(new_folder)
-    text = f"Changing download folder to __{os.path.join(folder.get(), new_folder)}__"
+    ok, info = vfs.cd(new_folder)
+    if not ok:
+        await catch_rate_limit(
+            callback.message.reply,
+            text=info,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        await catch_rate_limit(
+            callback.answer,
+            text=info
+        )
+
+    text = dedent(f"""
+    Changed current folder to __{vfs.current_rel_path}__
+    Share the media again to start download
+    """)
     logging.info(text)
-    await callback.answer(text)
+    await catch_rate_limit(
+        callback.message.reply,
+        text=text,
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await catch_rate_limit(
+        callback.answer,
+        text=text
+    )

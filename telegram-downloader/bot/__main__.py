@@ -7,49 +7,64 @@ from pyrogram.handlers.callback_query_handler import CallbackQueryHandler
 from pyrogram.handlers.message_handler import MessageHandler
 
 from . import app, commands, download
-from .util import checkAdmins
+from .util import check_admins
 
+# region BASIC COMMANDS
 app.add_handler(MessageHandler(
-    checkAdmins(commands.start),
+    check_admins(commands.start),
     command('start')
 ))
 app.add_handler(MessageHandler(
-    checkAdmins(commands.bot_help),
+    check_admins(commands.bot_help),
     command('help')
 ))
+# endregion BASIC COMMANDS
+
+# region STATS COMMANDS
 app.add_handler(MessageHandler(
-    checkAdmins(commands.usage),
+    check_admins(commands.usage),
     command('usage')
 ))
+# endregion STATS COMMANDS
+
+# region MANAGE PATH COMMANDS
 app.add_handler(MessageHandler(
-    checkAdmins(commands.use_folder),
+    check_admins(commands.change_folder),
     command('cd')
 ))
 
 app.add_handler(MessageHandler(
-    checkAdmins(commands.use_autofolder),
+    check_admins(commands.use_autofolder),
     command('autofolder')
 ))
 
 app.add_handler(MessageHandler(
-    checkAdmins(download.handler.addFile),
+    check_admins(commands.create_folder),
+    command('mkdir')
+))
+
+# endregion MANAGE PATH COMMANDS
+
+# region GET MEDIA
+app.add_handler(MessageHandler(
+    check_admins(download.handler.addFile),
     document | media
 ))
+# endregion GET MEDIA
 
 from pyrogram import filters
 
-def dynamic_data_filter(data):
-    async def func(flt, _, query: str):
-        return  query.data.startswith(flt.data )
+
+def switch_callback(data):
+    async def func(flt, _, query):
+        return query.data.startswith(flt.data)
 
     # "data" kwarg is accessed with "flt.data" above
     return filters.create(func, data=data)
 
 
-app.add_handler(CallbackQueryHandler(download.manager.stopDownload, filters=dynamic_data_filter('stop')))
-app.add_handler(CallbackQueryHandler(download.manager.cd, filters=dynamic_data_filter('cd')))
-
-
+app.add_handler(CallbackQueryHandler(download.manager.stopDownload, filters=switch_callback('stop')))
+app.add_handler(CallbackQueryHandler(download.manager.cd, filters=switch_callback('cd')))
 
 app.start()
 logging.info("Bot started!")

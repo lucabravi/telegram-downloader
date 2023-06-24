@@ -4,33 +4,41 @@ import os.path
 from os.path import isfile
 from random import choices, randint
 from string import ascii_letters, digits
+from textwrap import dedent
 from time import time
 
 from pyrogram.enums.parse_mode import ParseMode
-from pyrogram.errors import FloodWait
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-from .. import folder, BASE_FOLDER
+from .. import BASE_FOLDER
 from .manager import downloads
 from .type import Download
 from ..rate_limiter import catch_rate_limit
+from ..manage_path import vfs
 
 
 async def addFile(_, msg: Message):
-    if folder.get() in ('', '.') and not folder.allow_root_folder:
-        folders = folder.get_curdir_folders()
+    if vfs.current_rel_path == '.' and not vfs.allow_root_folder and not vfs.autofolder:
+        folders, files = vfs.ls()
         if len(folders) == 0:
-            ok, err = folder.mkdir('downloads')
-            if not ok:
-                await catch_rate_limit(msg.reply,
-                                       text=err,
-                                       parse_mode=ParseMode.MARKDOWN,
-                                       )
-                return
-            folder.set('downloads')
+            text = "You can't download in this folder, create a subfolder."
+            await catch_rate_limit(msg.reply,
+                                   text=text)
+            return
+        # else:
+        #     text = dedent(f"""
+        #     Root folder selected, please:
+        #     - go to a subfolder ( /cd __folder__ )
+        #     available folders: ["{'",'.join(folders)}"]
+        #     - enable autofolder ( /autofolder )
+        #     - create a new folder ( /mkdir __folder__)
+        #     """)
+        #     await catch_rate_limit(msg.reply,
+        #                            text=text)
+        #     return
         else:
             await catch_rate_limit(msg.reply,
-                                   text="Root folder selected, please select one of the subfolders.",
+                                   text="Root folder selected, please select one of the subfolders or create a new one with /mkdir __folder__.",
                                    quote=True,
                                    parse_mode=ParseMode.MARKDOWN,
                                    reply_markup=InlineKeyboardMarkup([[
@@ -40,26 +48,37 @@ async def addFile(_, msg: Message):
             return
 
     caption = msg.caption or ""
-    if folder.autofolder() and msg.forward_from_chat.id < 0 and msg.forward_from_chat.title.strip() != '':
-        foldername = folder.clean_folder_name(msg.forward_from_chat.title).strip().replace('  ', ' ')
-        filename =  os.path.join(folder.get(), foldername )
+    if vfs.autofolder and msg.forward_from_chat and  msg.forward_from_chat.id < 0 and msg.forward_from_chat.title.strip() != '':
+        ok, info = vfs.mkdir(msg.forward_from_chat.title)
+        if not ok:
+            text = dedent(f"""
+                {info}
+                {vfs.get_current_dir_info()}
+            """)
+            await catch_rate_limit(msg.reply, text=text)
+            return
+        path = os.path.join(vfs.current_rel_path, info)
     else:
-        filename = folder.get()
+        path = vfs.current_rel_path
 
     if caption[:1] == '>':
-        filename = os.path.join( filename, caption[2:])
+        filename = vfs.cleanup_path_name(caption[2:])
+        filepath = os.path.join(path, filename)
     else:
         try:
             media = getattr(msg, msg.media.value)
-            filename = os.path.join(filename, media.file_name)
+            filename = vfs.cleanup_path_name(media.file_name)
+            filepath = os.path.join(path, filename)
         except AttributeError:
-            filename = os.path.join(filename, ''.join(choices(ascii_letters + digits, k=12)))
-    if isfile(os.path.join(BASE_FOLDER, filename)):
-        text = "File already exists!"
+            filename = ''.join(choices(ascii_letters + digits, k=12))
+            filepath = os.path.join(path, filename)
+
+    if isfile(vfs.relative_to_absolute_path(filepath)):
+        text = f"File with the same name ({filename}) already exists!"
         logging.info(text)
         await catch_rate_limit(msg.reply, text=text, quote=True)
         return
-    text = f"File __{filename}__ added to list."
+    text = f"File __{filepath}__ added to list."
     logging.info(text)
     waiting = await catch_rate_limit(msg.reply, text=text,
                                      quote=True,
@@ -67,6 +86,7 @@ async def addFile(_, msg: Message):
     downloads.append(Download(
         id=randint(1e9, 1e10 - 1),
         filename=filename,
+        filepath=filepath,
         from_message=msg,
         added=time(),
         progress_message=waiting
