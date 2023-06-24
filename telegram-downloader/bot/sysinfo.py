@@ -10,14 +10,14 @@ class Usage:
     capacity: str
     used: str
     free: str
-    percent: int
+    percent: str
 
 
-def diskUsage(f: str) -> Usage:
+def disk_usage(f: str) -> Usage:
     u = psutil.disk_usage(f)
     return Usage(
-        used=util.humanReadable(u.used),
-        capacity=util.humanReadable(u.total),
-        free=util.humanReadable(u.total - u.used),
+        used=util.human_readable(u.used),
+        capacity=util.human_readable(u.total),
+        free=util.human_readable(u.total - u.used),
         percent=f"{u.percent:.0f}%"
     )

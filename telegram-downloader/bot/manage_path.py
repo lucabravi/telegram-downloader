@@ -11,67 +11,65 @@ logger.setLevel(logging.INFO)
 
 
 class VirtualFileSystem:
+    '''
+    Object that allow the management of a virtual file system avoiding to overcome the root directory assigned
+    '''
+
     def __init__(self, root='/'):
-        self.root = os.path.abspath(root)
-        self.current_dir = self.root
-        self.allow_root_folder = strtobool(os.getenv('ALLOW_ROOT_FOLDER', True))
-        self.auto_folder = True
+        self.__root = os.path.abspath(root)
+        self.__current_path = self.__root
+        self.allow_root_folder = strtobool(os.getenv('ALLOW_ROOT_FOLDER', False))
+        self.autofolder = False
 
-    def mkdir(self, directory_name):
-        # Rimozione dei caratteri proibiti
-        directory_name = re.sub(r'[<>:\"/\\|?*]', '', directory_name)
-        # Rimozione dei doppi spazi
-        directory_name = re.sub(r' +', ' ', directory_name)
-        # Rimozione degli spazi iniziali e finali
-        directory_name = directory_name.strip()
-
+    def mkdir(self, directory_name) -> (bool, str):
+        '''
+        create a new directory in the current path with the name passed by parameter
+        :param directory_name:
+        '''
+        directory_name = self.cleanup_path_name(directory_name)
         if not directory_name:
-            err = "Invalid directory name"
-            logging.info(err)
-            return False, err
+            info = "Invalid directory name"
+            logging.info(info)
+            return False, info
 
-        tmp_dir = os.path.join(self.current_dir, directory_name)
-        if not PurePath(os.path.abspath(tmp_dir)).is_relative_to(self.root):
-            err = "Cannot go beyond the virtual root directory"
-            logging.info(err)
-            return False, err
+        tmp_dir = os.path.join(self.__current_path, directory_name)
+        if not PurePath(os.path.abspath(tmp_dir)).is_relative_to(self.__root):
+            info = "Cannot go beyond the virtual root directory"
+            logging.info(info)
+            return False, info
 
         os.makedirs(tmp_dir, exist_ok=True)
         logging.info(f"Created directory '{directory_name}'")
-        return True, ''
+        return True, directory_name
 
     def cd(self, directory_name) -> (bool, str):
-        tmp_dir = os.path.join(self.current_dir, directory_name)
-
-        # if '\'' in directory_name:
-        #     err = "Invalid directory name"
-        #     logging.info(err)
-        #     return False, err
-        #
-        # if directory_name == '..':
-        #     if self.current_dir == self.root:
-        #         err = "Already in root"
-        #         logging.info(err)
-        #         return False, err
+        '''
+        change the current_rel_path to the subdirectory passed by param
+        :param directory_name:
+        '''
+        tmp_dir = os.path.abspath(os.path.join(self.__current_path, directory_name))
 
         if not os.path.isdir(tmp_dir):
-            err = f"Directory '{directory_name}' does not exist or is not accessible"
-            logging.info(err)
-            return False, err
+            info = f"Directory '{directory_name}' does not exist or is not accessible"
+            logging.info(info)
+            return False, info
 
-        if not PurePath(os.path.abspath(tmp_dir)).is_relative_to(self.root):
-            err = "Cannot go beyond the virtual root directory"
-            logging.info(err)
-            return False, err
+        if not PurePath(tmp_dir).is_relative_to(self.__root):
+            info = "Cannot go beyond the virtual root directory"
+            logging.info(info)
+            return False, info
 
-        self.current_dir = tmp_dir
-        return True, ''
+        self.__current_path = tmp_dir
+        return True, self.current_rel_path
 
-    def ls(self):
+    def ls(self) -> (list, list):
+        '''
+        get two list, one for the subdirectory and one for the files found on the current path
+        '''
         directories = []
         files = []
-        for item in os.listdir(self.current_dir):
-            item_path = os.path.join(self.current_dir, item)
+        for item in os.listdir(self.__current_path):
+            item_path = os.path.join(self.__current_path, item)
             if os.path.isdir(item_path):
                 directories.append(item)
             else:
@@ -80,8 +78,65 @@ class VirtualFileSystem:
         logging.info(f"Files: [{','.join(files)}]")
         return directories, files
 
+    @property
+    def root(self):
+        return self.__root
 
-vfs = VirtualFileSystem(root="./test")
+    @property
+    def current_rel_path(self, relative=True) -> str:
+        '''
+        get current relative path
+        '''
+        return os.path.relpath(self.__current_path, start=self.__root)
+
+    @property
+    def current_abs_path(self, relative=True) -> str:
+        '''
+        get current absolute path
+        '''
+        return self.__current_path
+
+    @property
+    def current_dir(self) -> str:
+        '''
+        get current directory
+        '''
+        return os.path.dirname(self.__current_path)
+
+    def get_current_dir_info(self) -> str:
+        '''
+        get a string with the current directory subfolders and files
+        '''
+        directories, files = self.ls()
+        return f'''
+        ---
+        Current directory: {self.current_rel_path}
+        Subfolders: {'","'.join(directories)}
+        '''
+
+    def relative_to_absolute_path(self, relative_path)-> str:
+        '''
+        convert a relative path to absolute path
+        :param relative_path:
+        '''
+        return os.path.join(self.__root, relative_path)
+
+    @staticmethod
+    def cleanup_path_name(path_name) -> str:
+        '''
+        clean from special characters the directory passed by param
+        :param path_name:
+        '''
+        # Rimozione dei caratteri proibiti
+        path_name = re.sub(r'[<>:\"/\\|?*]', '', path_name)
+        # Rimozione dei doppi spazi
+        path_name = re.sub(r' +', ' ', path_name)
+        # Rimozione degli spazi iniziali e finali
+        path_name = path_name.strip()
+        return path_name
+
+
+vfs = VirtualFileSystem(root=BASE_FOLDER)
 
 # Esempio di utilizzo
 # vfs.mkdir("dir1")

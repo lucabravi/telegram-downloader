@@ -6,7 +6,7 @@ from pyrogram.types import Message
 from . import ADMINS
 
 
-def humanReadable(n: int) -> str:
+def human_readable(n: int) -> str:
     symbol = "B"
     divider = 1
     if n >= 1024 ** 3:
@@ -19,7 +19,7 @@ def humanReadable(n: int) -> str:
     return f"{t:.2f} {symbol}"
 
 
-def checkAdmins(func: Coroutine) -> Coroutine:
+def check_admins(func: Coroutine) -> Coroutine:
     async def x(app: Client, msg: Message):
         if str(msg.chat.id) not in ADMINS and f"@{msg.chat.username}" not in ADMINS:
             return

@@ -7,21 +7,19 @@ load_dotenv()
 
 ADMINS = getenv('ADMINS').split()
 BASE_FOLDER = getenv('DOWNLOAD_FOLDER', '/data')
-DL_FOLDER = BASE_FOLDER
 
 try:
-    mkdir(DL_FOLDER)
+    mkdir(BASE_FOLDER)
 except FileExistsError:
     pass
 
-
 import logging
+
 logging.basicConfig(
     level=getenv('DEBUG_LEVEL', 'INFO'),
     format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
 )
-
 
 app = Client(
     name=__name__,
