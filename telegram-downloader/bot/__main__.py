@@ -35,7 +35,21 @@ app.add_handler(MessageHandler(
     checkAdmins(download.handler.addFile),
     document | media
 ))
-app.add_handler(CallbackQueryHandler(download.manager.stopDownload))
+
+from pyrogram import filters
+
+def dynamic_data_filter(data):
+    async def func(flt, _, query: str):
+        return  query.data.startswith(flt.data )
+
+    # "data" kwarg is accessed with "flt.data" above
+    return filters.create(func, data=data)
+
+
+app.add_handler(CallbackQueryHandler(download.manager.stopDownload, filters=dynamic_data_filter('stop')))
+app.add_handler(CallbackQueryHandler(download.manager.cd, filters=dynamic_data_filter('cd')))
+
+
 
 app.start()
 logging.info("Bot started!")

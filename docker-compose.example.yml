@@ -13,6 +13,7 @@ services:
     #  - TELEGRAM_API_HASH=
     #  - BOT_TOKEN=
     #  - ADMINS=@
+    #  - ALLOW_ROOT_FOLDER=True
     restart: "no"
     logging:
       driver: local
