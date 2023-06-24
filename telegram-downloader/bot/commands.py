@@ -99,12 +99,14 @@ async def create_folder(_, msg: Message):
 
 async def show_folder(_, msg: Message):
     directories, files = vfs.ls()
+    directories = (f'{len(directories)} | "' + ",".join(directories) + '"') if len(directories) > 0 else ''
+    files = (f'{len(files)} | "' + ",".join(files) + '"') if len(files) > 0 else ''
 
     text = dedent(f"""
         Path: {'/' if vfs.current_rel_path == '.' else vfs.current_rel_path}
         ---
-        Folders: {len(directories)} | "{'","'.join(directories)}"
-        Files: {len(files)} | "{'","'.join(files)}"
+        Folders: {directories if directories != '' else ''}
+        Files: {files if files != '' else ''}
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text)
