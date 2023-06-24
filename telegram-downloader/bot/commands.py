@@ -101,11 +101,10 @@ async def show_folder(_, msg: Message):
     directories, files = vfs.ls()
 
     text = dedent(f"""
-        Path: {vfs.current_rel_path}:
+        Path: {'/' if vfs.current_rel_path == '.' else vfs.current_rel_path}
         ---
         Folders: {len(directories)} | "{'","'.join(directories)}"
         Files: {len(files)} | "{'","'.join(files)}"
-        {vfs.get_current_dir_info()}
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text)
