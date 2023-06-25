@@ -35,7 +35,7 @@ async def bot_help(_, msg: Message):
 
 
 async def usage(_, msg: Message):
-    u = sysinfo.disk_usage(vfs.__root)
+    u = sysinfo.disk_usage(vfs.root)
     text = dedent(f"""
         Disk usage: __{u.used}__ / __{u.capacity}__ (__{u.percent}__)
         Free: __{u.free}__
