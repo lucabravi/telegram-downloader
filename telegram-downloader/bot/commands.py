@@ -3,7 +3,7 @@ import os
 from textwrap import dedent
 
 from pyrogram.enums import ParseMode
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 
 from . import sysinfo
 from .rate_limiter import catch_rate_limit
@@ -94,13 +94,15 @@ async def create_folder(_, msg: Message):
         {vfs.get_current_dir_info()}
     """)
     logging.info(text)
-    await catch_rate_limit(msg.reply, text=text)
+    await catch_rate_limit(msg.reply, text=text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"Open new folder __{new_folder}__", callback_data=f"cd {new_folder}")
+    ]]))
 
 
 async def show_folder(_, msg: Message):
     directories, files = vfs.ls()
-    directories = (f'{len(directories)} | "' + '","'.join(directories) + '"') if len(directories) > 0 else ''
-    files = (f'{len(files)} | "' + '","'.join(files) + '"') if len(files) > 0 else ''
+    directories = (f'{len(directories)} | ' + '\n'.join(["- " + directory for directory in directories]) + '\n') if len(directories) > 0 else ''
+    files = (f'{len(files)} | ' + '\n'.join(["- " + file for file in files]) + '\n') if len(files) > 0 else ''
 
     text = dedent(f"""
         Path: {'/' if vfs.current_rel_path == '.' else vfs.current_rel_path}
