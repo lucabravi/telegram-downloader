@@ -47,7 +47,7 @@ async def addFile(_, msg: Message):
                                    )
             return
 
-    caption = msg.caption or ""
+    caption = str(msg.caption) or ""
     if vfs.autofolder and msg.forward_from_chat and  msg.forward_from_chat.id < 0 and msg.forward_from_chat.title.strip() != '':
         ok, info = vfs.mkdir(msg.forward_from_chat.title)
         if not ok:
