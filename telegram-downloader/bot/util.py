@@ -32,5 +32,5 @@ def check_admins(func: Coroutine) -> Coroutine:
 def dedent(text: str):
     ret = ''
     for line in text.splitlines():
-        ret += line.strip()
+        ret += line.strip() + '\n'
     return ret
