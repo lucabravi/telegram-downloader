@@ -1,3 +1,4 @@
+# from .util import dedent as _dedent
 from typing import Coroutine
 
 from pyrogram import Client
@@ -24,4 +25,12 @@ def check_admins(func: Coroutine) -> Coroutine:
         if str(msg.chat.id) not in ADMINS and f"@{msg.chat.username}" not in ADMINS:
             return
         await func(app, msg)
+
     return x
+
+
+def dedent(text: str):
+    ret = ''
+    for line in text.splitlines():
+        ret += line.strip()
+    return ret

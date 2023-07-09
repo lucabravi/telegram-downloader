@@ -4,7 +4,7 @@ import os.path
 from os.path import isfile
 from random import choices, randint
 from string import ascii_letters, digits
-from textwrap import dedent
+from ..util import dedent
 from time import time
 
 from pyrogram.enums.parse_mode import ParseMode
