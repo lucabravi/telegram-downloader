@@ -105,11 +105,11 @@ async def show_folder(_, msg: Message):
         directories) > 0 else ''
     files = (f'{len(files)} \n' + '\n'.join(["- " + file for file in files]) + '\n').strip()  if len(files) > 0 else ''
 
-    text = dedent(f"""\
-        Path: {'/' if vfs.current_rel_path == '.' else vfs.current_rel_path}
+    text = dedent(f"""
+    Path: {'/' if vfs.current_rel_path == '.' else vfs.current_rel_path}
 
-        Folders: {directories if directories != '' else '0'}
-        Files: {files if files != '' else '0'}
+    Folders: {directories if directories != '' else '0'}
+    Files: {files if files != '' else '0'}
     """)
 
     logging.info(text)
