@@ -29,8 +29,8 @@ def check_admins(func: Coroutine) -> Coroutine:
     return x
 
 
-def dedent(text: str):
-    ret = ''
-    for line in text.splitlines():
-        ret += line.strip() + '\n'
-    return ret
+import re
+compiled_dedent_re = re.compile(r'(^|\n)[ \t]+')
+def dedent(text: str) -> str:
+    replacement = r'\1'
+    return compiled_dedent_re.sub(replacement, text)
