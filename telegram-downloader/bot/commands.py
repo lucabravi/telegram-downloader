@@ -101,9 +101,9 @@ async def create_folder(_, msg: Message):
 
 async def show_folder(_, msg: Message):
     directories, files = vfs.ls()
-    directories = (f'{len(directories)} \n' + '\n'.join(["- " + directory for directory in directories]) + '\n') if len(
+    directories = (f'{len(directories)} \n' + '\n'.join(["- " + directory for directory in directories]) + '\n').strip()  if len(
         directories) > 0 else ''
-    files = (f'{len(files)} \n' + '\n'.join(["- " + file for file in files]) + '\n') if len(files) > 0 else ''
+    files = (f'{len(files)} \n' + '\n'.join(["- " + file for file in files]) + '\n').strip()  if len(files) > 0 else ''
 
     text = dedent(f"""
         Path: {'/' if vfs.current_rel_path == '.' else vfs.current_rel_path}
