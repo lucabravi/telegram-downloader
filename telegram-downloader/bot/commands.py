@@ -95,20 +95,23 @@ async def create_folder(_, msg: Message):
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"Open new folder __{new_folder}__", callback_data=f"cd {new_folder}")
+        InlineKeyboardButton(f"Open new folder \"{new_folder}\"", callback_data=f"cd {new_folder}")
     ]]))
 
 
 async def show_folder(_, msg: Message):
     directories, files = vfs.ls()
-    directories = (f'{len(directories)} | ' + '\n'.join(["- " + directory for directory in directories]) + '\n') if len(directories) > 0 else ''
-    files = (f'{len(files)} | ' + '\n'.join(["- " + file for file in files]) + '\n') if len(files) > 0 else ''
+    directories = (f'{len(directories)} \n' + '\n'.join(["- " + directory for directory in directories]) + '\n') if len(
+        directories) > 0 else ''
+    files = (f'{len(files)} \n' + '\n'.join(["- " + file for file in files]) + '\n') if len(files) > 0 else ''
 
     text = dedent(f"""
         Path: {'/' if vfs.current_rel_path == '.' else vfs.current_rel_path}
-        ---
+
         Folders: {directories if directories != '' else '0'}
         Files: {files if files != '' else '0'}
     """)
+
     logging.info(text)
+
     await catch_rate_limit(msg.reply, text=text)
