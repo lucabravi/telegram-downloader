@@ -1,6 +1,6 @@
 import logging
 import os
-from textwrap import dedent
+from .util import dedent
 
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup

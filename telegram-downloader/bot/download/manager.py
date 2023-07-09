@@ -1,6 +1,6 @@
 import logging
 import os.path
-from textwrap import dedent
+from ..util import dedent
 from time import ctime, time, sleep
 from typing import List
 
