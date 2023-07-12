@@ -25,5 +25,6 @@ app = Client(
     name=__name__,
     api_id=int(getenv('TELEGRAM_API_ID')),
     api_hash=getenv('TELEGRAM_API_HASH'),
-    bot_token=getenv('BOT_TOKEN')
+    bot_token=getenv('BOT_TOKEN'),
+    max_concurrent_transmissions=int(getenv('DOWNLOAD_WORKERS', '3'))
 )

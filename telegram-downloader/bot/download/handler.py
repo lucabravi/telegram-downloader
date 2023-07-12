@@ -11,7 +11,7 @@ from pyrogram.enums.parse_mode import ParseMode
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from .. import BASE_FOLDER
-from .manager import downloads
+from .manager import enqueue_download
 from .type import Download
 from ..rate_limiter import catch_rate_limit
 from ..manage_path import vfs
@@ -48,7 +48,7 @@ async def addFile(_, msg: Message):
             return
 
     caption = str(msg.caption) or ""
-    if vfs.autofolder and msg.forward_from_chat and  msg.forward_from_chat.id < 0 and msg.forward_from_chat.title.strip() != '':
+    if vfs.autofolder and msg.forward_from_chat and msg.forward_from_chat.id < 0 and msg.forward_from_chat.title.strip() != '':
         ok, info = vfs.mkdir(msg.forward_from_chat.title)
         if not ok:
             text = dedent(f"""
@@ -67,9 +67,11 @@ async def addFile(_, msg: Message):
     else:
         try:
             media = getattr(msg, msg.media.value)
+            if media.file_name is None:
+                raise Exception('media.file_name is None, generating random filename')
             filename = vfs.cleanup_path_name(media.file_name)
             filepath = os.path.join(path, filename)
-        except AttributeError:
+        except Exception as e:
             filename = ''.join(choices(ascii_letters + digits, k=12))
             filepath = os.path.join(path, filename)
 
@@ -83,7 +85,7 @@ async def addFile(_, msg: Message):
     waiting = await catch_rate_limit(msg.reply, text=text,
                                      quote=True,
                                      parse_mode=ParseMode.MARKDOWN)
-    downloads.append(Download(
+    await enqueue_download(Download(
         id=randint(1e9, 1e10 - 1),
         filename=filename,
         filepath=filepath,

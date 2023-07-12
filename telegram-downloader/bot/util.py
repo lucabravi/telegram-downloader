@@ -7,7 +7,7 @@ from pyrogram.types import Message
 from . import ADMINS
 
 
-def human_readable(n: int) -> str:
+def human_readable(n: float) -> str:
     symbol = "B"
     divider = 1
     if n >= 1024 ** 3:

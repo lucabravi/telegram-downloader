@@ -1,5 +1,6 @@
 import logging
 from threading import Thread
+import asyncio
 
 from pyrogram import idle
 from pyrogram.filters import command, document, media
@@ -74,9 +75,9 @@ app.start()
 logging.info("Bot started!")
 logging.info("Press CTRL+Z to stop...")
 
-t = Thread(target=download.manager.run)
-t.start()
-idle()
-t.join()
+loop = asyncio.get_event_loop()
+loop.create_task(download.manager.run())
+loop.run_forever()
+loop.close()
 
 app.stop()
