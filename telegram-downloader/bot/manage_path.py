@@ -9,17 +9,18 @@ from . import BASE_FOLDER
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+ALLOW_ROOT_FOLDER = strtobool(os.getenv('ALLOW_ROOT_FOLDER', False))
+
 
 class VirtualFileSystem:
     '''
     Object that allow the management of a virtual file system avoiding to overcome the root directory assigned
     '''
 
-    def __init__(self, root='/'):
+    def __init__(self, root=BASE_FOLDER):
         self.__root = os.path.abspath(root)
         self.__current_path = self.__root
-        self.allow_root_folder = strtobool(os.getenv('ALLOW_ROOT_FOLDER', False))
-        self.autofolder = False
+        self.allow_root_folder = ALLOW_ROOT_FOLDER
 
     def mkdir(self, directory_name) -> (bool, str):
         '''
@@ -48,6 +49,26 @@ class VirtualFileSystem:
         :param directory_name:
         '''
         tmp_dir = os.path.abspath(os.path.join(self.__current_path, directory_name))
+
+        if not os.path.isdir(tmp_dir):
+            info = f"Directory '{directory_name}' does not exist or is not accessible"
+            logging.info(info)
+            return False, info
+
+        if not PurePath(tmp_dir).is_relative_to(self.__root):
+            info = "Cannot go beyond the virtual root directory"
+            logging.info(info)
+            return False, info
+
+        self.__current_path = tmp_dir
+        return True, self.current_rel_path
+
+    def abs_cd(self, directory_name) -> (bool, str):
+        '''
+        change the current_rel_path to the subdirectory passed by param always starting from virtual root
+        :param directory_name:
+        '''
+        tmp_dir = os.path.abspath(os.path.join(self.__root, directory_name))
 
         if not os.path.isdir(tmp_dir):
             info = f"Directory '{directory_name}' does not exist or is not accessible"
@@ -114,7 +135,7 @@ class VirtualFileSystem:
         Subfolders: {'","'.join(directories)}
         '''
 
-    def relative_to_absolute_path(self, relative_path)-> str:
+    def relative_to_absolute_path(self, relative_path) -> str:
         '''
         convert a relative path to absolute path
         :param relative_path:
@@ -136,8 +157,7 @@ class VirtualFileSystem:
         return path_name
 
 
-vfs = VirtualFileSystem(root=BASE_FOLDER)
-
+# vfs = VirtualFileSystem(root=BASE_FOLDER)
 # Esempio di utilizzo
 # vfs.mkdir("dir1")
 # vfs.mkdir("dir2")

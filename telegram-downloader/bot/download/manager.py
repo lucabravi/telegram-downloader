@@ -12,7 +12,7 @@ from .. import app
 from ..rate_limiter import catch_rate_limit, sync_catch_rate_limit
 from ..util import human_readable
 from .type import Download
-from ..manage_path import vfs
+from ..manage_path import VirtualFileSystem, BASE_FOLDER
 import asyncio
 
 running: int = 0
@@ -61,7 +61,7 @@ async def enqueue_download(download: Download):
 async def download_file(download: Download):
     global running
 
-    file_path = os.path.join(vfs.root, download.filepath)
+    file_path = os.path.join(BASE_FOLDER, download.filepath)
     if os.path.exists(file_path):
         text = f"""
             File with same name ({download.filepath}) already present in current download directory.
@@ -152,7 +152,7 @@ async def progress(received: int, total: int, download: Download):
     download.last_call = now
 
 
-async def stopDownload(_, callback: CallbackQuery):
+async def stopDownload(_, callback: CallbackQuery, chat):
     id = int(callback.data.split()[-1])
     stop.append(id)
     text = "Stopping download..."
@@ -160,7 +160,15 @@ async def stopDownload(_, callback: CallbackQuery):
     await callback.answer(text)
 
 
-async def cd(_, callback: CallbackQuery):
+async def cd(_, callback: CallbackQuery, chat):
+    vfs = VirtualFileSystem()
+    ok, cur_path = vfs.abs_cd(chat.current_dir)
+    if not ok:
+        text = ("There's a problem with saved current folder, change folder with /cd __foldername__ or create"
+                " a new folder with /mkdir __foldername__.")
+        await catch_rate_limit(callback.message.reply, text)
+        return
+
     new_folder = callback.data[3:].strip()
     ok, info = vfs.cd(new_folder)
     if not ok:
@@ -174,6 +182,7 @@ async def cd(_, callback: CallbackQuery):
             text=info
         )
 
+    await chat.update_current_dir(vfs.current_rel_path)
     text = dedent(f"""
     Changed current folder to __{vfs.current_rel_path}__
     Share the media again to start download
