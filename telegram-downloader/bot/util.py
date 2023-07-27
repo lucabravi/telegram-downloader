@@ -2,8 +2,9 @@
 from typing import Coroutine
 
 from pyrogram import Client
-from pyrogram.types import Message
+from pyrogram.types import Message, CallbackQuery
 
+from .db import Chat
 from . import ADMINS
 
 
@@ -22,9 +23,22 @@ def human_readable(n: float) -> str:
 
 def check_admins(func: Coroutine) -> Coroutine:
     async def x(app: Client, msg: Message):
+        chat = await Chat.update_chat(msg)
+
         if str(msg.chat.id) not in ADMINS and f"@{msg.chat.username}" not in ADMINS:
             return
-        await func(app, msg)
+        await func(app, msg, chat)
+
+    return x
+
+
+def check_admins_callback(func: Coroutine) -> Coroutine:
+    async def x(app: Client, callback: CallbackQuery):
+        chat = await Chat.update_chat(callback.message)
+
+        if str(callback.message.chat.id) not in ADMINS and f"@{callback.message.chat.username}" not in ADMINS:
+            return
+        await func(app, callback, chat)
 
     return x
 
