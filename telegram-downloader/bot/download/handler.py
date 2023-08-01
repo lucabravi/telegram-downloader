@@ -25,7 +25,7 @@ async def add_file(_, msg: Message, chat: Chat):
     if not ok:
         text = ("There's a problem with saved current folder, change folder with /cd __foldername__ or create"
                 " a new folder with /mkdir __foldername__.")
-        await catch_rate_limit(msg.reply, text)
+        await catch_rate_limit(msg.reply, text=text)
         return
 
     if chat.current_dir in ('/', '.', '') and not vfs.allow_root_folder and not chat.autofolder:

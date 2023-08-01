@@ -11,7 +11,7 @@ from . import sysinfo
 from .rate_limiter import catch_rate_limit
 from .manage_path import VirtualFileSystem
 
-from .db import Chat, get_or_create, async_session
+from .db import Chat
 
 
 async def start(_, msg: Message, chat: Chat):
@@ -58,9 +58,8 @@ async def change_folder(_, msg: Message, chat: Chat):
     vfs = VirtualFileSystem()
     ok, cur_path = vfs.abs_cd(chat.current_dir)
     if not ok:
-        text = ("There's a problem with saved current folder, change folder with /cd __foldername__ or create"
-                " a new folder with /mkdir __foldername__.")
-        await catch_rate_limit(msg.reply, text)
+        text = ("There was a problem moving to this folder. Retry with another one.")
+        await catch_rate_limit(msg.reply, text=text)
         return
 
     ok, err = vfs.cd(new_folder)
@@ -113,9 +112,8 @@ async def create_folder(_, msg: Message, chat: Chat):
     vfs = VirtualFileSystem()
     ok, cur_path = vfs.abs_cd(chat.current_dir)
     if not ok:
-        text = ("There's a problem with saved current folder, change folder with /cd __foldername__ or create"
-                " a new folder with /mkdir __foldername__.")
-        await catch_rate_limit(msg.reply, text)
+        text = ("There was a problem creating this new folder.")
+        await catch_rate_limit(msg.reply, text=text)
         return
 
     ok, err = vfs.mkdir(new_folder)
@@ -140,9 +138,10 @@ async def show_folder(_, msg: Message, chat: Chat):
     vfs = VirtualFileSystem()
     ok, cur_path = vfs.abs_cd(chat.current_dir)
     if not ok:
-        text = ("There's a problem with saved current folder, change folder with /cd __foldername__ or create"
-                " a new folder with /mkdir __foldername__.")
-        await catch_rate_limit(msg.reply, text)
+        text = dedent("""There's a problem with saved current folder, i reset it to root.
+                Change folder with /cd __foldername__ or create a new folder with /mkdir __foldername__.""")
+        await chat.update_current_dir('.')
+        await catch_rate_limit(msg.reply, text=text)
         return
 
     directories, files = vfs.ls()
