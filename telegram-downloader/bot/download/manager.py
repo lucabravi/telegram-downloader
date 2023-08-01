@@ -164,9 +164,8 @@ async def cd(_, callback: CallbackQuery, chat):
     vfs = VirtualFileSystem()
     ok, cur_path = vfs.abs_cd(chat.current_dir)
     if not ok:
-        text = ("There's a problem with saved current folder, change folder with /cd __foldername__ or create"
-                " a new folder with /mkdir __foldername__.")
-        await catch_rate_limit(callback.message.reply, text)
+        text = ("There was a problem moving to the destination folder.")
+        await catch_rate_limit(callback.message.reply, text=text)
         return
 
     new_folder = callback.data[3:].strip()

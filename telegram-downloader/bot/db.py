@@ -14,7 +14,7 @@ Base = declarative_base()
 class Chat(Base):
     __tablename__ = 'chat'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    current_dir = Column(String, default='/')
+    current_dir = Column(String, default='.')
     autofolder = Column(Boolean, default=False)
     autoname = Column(Boolean, default=False)
     last_message_id = Column(Integer)
@@ -23,7 +23,7 @@ class Chat(Base):
     @classmethod
     async def update_chat(cls, msg):
         async with async_session() as session:
-            chat, create = await get_or_create(session, cls, id=msg.chat.id)
+            chat, create = await get_or_create(cls, id=msg.chat.id)
             chat.last_message_id = msg.id
             chat.last_message_date = datetime.datetime.now()
             await session.commit()
@@ -32,7 +32,7 @@ class Chat(Base):
     async def update_current_dir(self, current_dir) -> None:
         async with async_session() as session:
             chat = await session.get(Chat, self.id)
-            chat.current_dir = current_dir
+            chat.current_dir = current_dir if current_dir != '/' else '.'
             await session.commit()
 
     async def update_autofolder(self, autofolder) -> None:
@@ -50,6 +50,7 @@ class Chat(Base):
 
 
 
+
 async def create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -59,23 +60,18 @@ engine = create_async_engine('sqlite+aiosqlite:///database_file.db', future=True
 async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
-async def get_or_create(session, model, defaults=None, **kwargs):
-    async with session.begin():
-
-        instance = await session.execute(select(model).filter_by(**kwargs))
-        instance = instance.one_or_none()
-        if instance:
-            return instance[0], False
-        else:
-            kwargs |= defaults or {}
-            instance = model(**kwargs)
-            try:
+async def get_or_create(model, **kwargs):
+    async with async_session() as session:
+        try:
+            # instance = await session.get(model, **kwargs)
+            instance = await session.execute(select(model).filter_by(**kwargs))
+            instance = instance.scalars().first()
+            if instance is None:
+                instance = model(**kwargs)
                 session.add(instance)
                 await session.commit()
-            except Exception as e:  # The actual exception depends on the specific database, so we catch all exceptions. This is similar to the official documentation: https://docs.sqlalchemy.org/en/latest/orm/session_transaction.html
-                logging.error(f'get_or_create | {e}')
-                await session.rollback()
-                instance = await session.query(model).filter_by(**kwargs).one()
-                return instance, False
-            else:
                 return instance, True
+            return instance, False
+        except Exception as e:
+            logging.error(f'get_or_create | {e}')
+        return None, False
