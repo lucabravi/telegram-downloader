@@ -133,6 +133,7 @@ def extract_numbers_from_title(title):
         s_match = s_regex.search(title)
         ep_number = int(ep_match.group(1))
         s_number = int(s_match.group(1))
+        logging.debug(f'extract_numbers_from_title | s_number: {s_number} - ep_number: {ep_number}')
         return ep_number, s_number
     except:
         pass
