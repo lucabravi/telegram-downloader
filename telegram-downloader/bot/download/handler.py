@@ -80,6 +80,7 @@ async def add_file(_, msg: Message, chat: Chat):
                 raise Exception('media.file_name is None, generating random filename')
             filename = vfs.cleanup_path_name(media.file_name)
     except Exception as e:
+        logging.error(f'Error getting filename: {e}')
         filename = ''.join(choices(ascii_letters + digits, k=12))
 
     filepath = os.path.join(path, filename)
@@ -133,7 +134,7 @@ def extract_numbers_from_title(title):
         s_match = s_regex.search(title)
         ep_number = int(ep_match.group(1))
         s_number = int(s_match.group(1))
-        logging.debug(f'extract_numbers_from_title | s_number: {s_number} - ep_number: {ep_number}')
+        logging.info(f'extract_numbers_from_title | s_number: {s_number} - ep_number: {ep_number}')
         return ep_number, s_number
     except:
         pass
