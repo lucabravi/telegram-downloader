@@ -106,7 +106,8 @@ async def add_file(_, msg: Message, chat: Chat):
 
 
 def find_correct_filename(original_filename: str, caption: str, chat_title: str) -> str:
-    file_extension = original_filename.split('.')[-1]
+
+    file_extension = original_filename.split('.')[-1] if original_filename is not None else 'mp4'
     ep, season = extract_numbers_from_title(caption)
     if ep is not None and season is not None:
         return format_filename(season, ep, file_extension)
