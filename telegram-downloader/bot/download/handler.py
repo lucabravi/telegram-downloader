@@ -5,6 +5,8 @@ import os.path
 from os.path import isfile
 from random import choices, randint
 from string import ascii_letters, digits
+from typing import Tuple
+
 from ..util import dedent
 from time import time
 
@@ -106,37 +108,53 @@ async def add_file(_, msg: Message, chat: Chat):
 
 
 def find_correct_filename(original_filename: str, caption: str, chat_title: str) -> str:
-
     file_extension = original_filename.split('.')[-1] if original_filename is not None else 'mp4'
-    ep, season = extract_numbers_from_title(caption)
+    season, ep, is_ova = extract_numbers_from_title(caption)
     if ep is not None and season is not None:
-        return format_filename(season, ep, file_extension)
+        return format_filename(season, ep, is_ova, file_extension)
 
-    ep, season = extract_numbers_from_title(original_filename)
+    season, ep, is_ova = extract_numbers_from_title(original_filename)
     if ep is not None and season is not None:
-        return format_filename(season, ep, file_extension)
+        return format_filename(season, ep, is_ova, file_extension)
 
     return original_filename
 
 
-def format_filename(season, episode, file_extension):
+def format_filename(season: int, episode: int, is_ova: bool, file_extension: str) -> str:
     season = str(season).rjust(2, '0')
     episode = str(episode).rjust(3, '0')
-    return f'S{season}E{episode}.{file_extension}'
+    if is_ova:
+        return f'S{season}OVA{episode}.{file_extension}'
+    else:
+        return f'S{season}E{episode}.{file_extension}'
 
 
 ep_regex = re.compile(r"Ep?(\d{1,4})\b")
+ova_regex = re.compile(r"OVA?(\d{1,4})\b")
 s_regex = re.compile(r"S(\d{1,2})\b")
 
 
-def extract_numbers_from_title(title):
+def extract_numbers_from_title(title) -> Tuple[int | None, int | None, bool]:
     try:
-        ep_match = ep_regex.search(title)
         s_match = s_regex.search(title)
-        ep_number = int(ep_match.group(1))
-        s_number = int(s_match.group(1))
-        logging.info(f'extract_numbers_from_title | s_number: {s_number} - ep_number: {ep_number}')
-        return ep_number, s_number
-    except:
-        pass
-    return None, None
+        ep_match = ep_regex.search(title)
+        ova_match = ova_regex.search(title)
+
+        # Check if none of the three matches are found
+        if not s_match and not ep_match and not ova_match:
+            raise Exception("No information about season, episode, or OVA found in the title")
+
+        # Check if at least one of episode number or OVA number is present
+        if not (ep_match or ova_match):
+            raise Exception("You must provide at least the episode number or the OVA number")
+
+        s_number = int(s_match.group(1)) if s_match else None
+        ep_number = int(ep_match.group(1)) if ep_match else None
+        ova_number = int(ova_match.group(1)) if ova_match else None
+
+        logging.info(
+            f'extract_numbers_from_title | s_number: {s_number} - ep_number: {ep_number} - ova_number: {ova_number}')
+        return s_number, ep_number or ova_number, ova_number is not None
+    except Exception as e:
+        logging.warn(f'extract_numbers_from_title | No information about season, episode, or OVA found in the title')
+    return None, None, False
