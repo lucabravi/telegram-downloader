@@ -109,14 +109,17 @@ async def add_file(_, msg: Message, chat: Chat):
 
 def find_correct_filename(original_filename: str, caption: str, chat_title: str) -> str:
     file_extension = original_filename.split('.')[-1] if original_filename is not None else 'mp4'
-    season, ep, is_ova = extract_numbers_from_title(caption)
-    if ep is not None and season is not None:
-        return format_filename(season, ep, is_ova, file_extension)
+    season_capt, ep_capt, is_ova_capt = extract_numbers_from_title(caption)
+    if ep_capt is not None and season_capt is not None:
+        return format_filename(season_capt, ep_capt, is_ova_capt, file_extension)
 
-    season, ep, is_ova = extract_numbers_from_title(original_filename)
-    if ep is not None and season is not None:
-        return format_filename(season, ep, is_ova, file_extension)
+    season_ofi, ep_ofi, is_ova_ofi = extract_numbers_from_title(original_filename)
+    if ep_ofi is not None and season_ofi is not None:
+        return format_filename(season_ofi, ep_ofi, is_ova_ofi, file_extension)
 
+    if ep_capt is not None:
+        return format_filename('1', ep_capt, is_ova_capt, file_extension)
+    
     return original_filename
 
 
@@ -142,6 +145,7 @@ def extract_numbers_from_title(title) -> Tuple[int | None, int | None, bool]:
 
         # Check if none of the three matches are found
         if not s_match and not ep_match and not ova_match:
+            logging.info(f'{s_match} - {ep_match} - {ova_match}')
             raise Exception("No information about season, episode, or OVA found in the title")
 
         # Check if at least one of episode number or OVA number is present
@@ -156,5 +160,5 @@ def extract_numbers_from_title(title) -> Tuple[int | None, int | None, bool]:
             f'extract_numbers_from_title | s_number: {s_number} - ep_number: {ep_number} - ova_number: {ova_number}')
         return s_number, ep_number or ova_number, ova_number is not None
     except Exception as e:
-        logging.warn(f'extract_numbers_from_title | No information about season, episode, or OVA found in the title')
+        logging.warn(f'extract_numbers_from_title | {e}')
     return None, None, False
