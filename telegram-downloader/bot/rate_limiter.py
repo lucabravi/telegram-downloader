@@ -16,14 +16,14 @@ async def catch_rate_limit(function, wait=True, *args, **kwargs):
     while True:
         if not wait and (datetime.now() - last_block).total_seconds() <= last_block_seconds + 2:
             return None
-        if wait and len(last_messages) >= 5 and (datetime.now() - last_messages[-5]).total_seconds() <= 1:
+        if wait and len(last_messages) >= 3 and (datetime.now() - last_messages[-3]).total_seconds() <= 1:
             await asyncio.sleep(2)
             continue
-        elif not wait and (datetime.now() - last_messages[-5]).total_seconds() <= 1:
+        elif not wait and (datetime.now() - last_messages[-3]).total_seconds() <= 1:
             return None
 
         last_messages.append(datetime.now())
-        if len(last_messages) > 5:
+        if len(last_messages) > 3:
             last_messages.pop(0)
 
         try:
@@ -44,14 +44,14 @@ def sync_catch_rate_limit(function, wait=True, *args, **kwargs):
     while True:
         if not wait and (datetime.now() - last_block).total_seconds() <= last_block_seconds + 2:
             return None
-        if wait and len(last_messages) >= 5 and (datetime.now() - last_messages[-5]).total_seconds() <= 1:
+        if wait and len(last_messages) >= 3 and (datetime.now() - last_messages[-3]).total_seconds() <= 1:
             time.sleep(2)
             continue
-        elif not wait and (datetime.now() - last_messages[-5]).total_seconds() <= 1:
+        elif not wait and (datetime.now() - last_messages[-3]).total_seconds() <= 1:
             return None
 
         last_messages.append(datetime.now())
-        if len(last_messages) > 5:
+        if len(last_messages) > 3:
             last_messages.pop(0)
 
         try:
