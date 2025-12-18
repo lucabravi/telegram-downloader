@@ -1,5 +1,4 @@
 import re
-import asyncio
 import logging
 import os.path
 from os.path import isfile
@@ -13,7 +12,6 @@ from time import time
 from pyrogram.enums.parse_mode import ParseMode
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-from .. import BASE_FOLDER
 from ..db import Chat
 from .manager import enqueue_download
 from .type import Download
@@ -98,7 +96,7 @@ async def add_file(_, msg: Message, chat: Chat):
                                      quote=True,
                                      parse_mode=ParseMode.MARKDOWN)
     await enqueue_download(Download(
-        id=randint(1e9, 1e10 - 1),
+        id=randint(1_000_000_000, 9_999_999_999),
         filename=filename,
         filepath=filepath,
         from_message=msg,

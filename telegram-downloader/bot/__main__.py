@@ -1,8 +1,6 @@
 import logging
-from threading import Thread
 import asyncio
 
-from pyrogram import idle
 from pyrogram.filters import command, document, media
 from pyrogram.handlers.callback_query_handler import CallbackQueryHandler
 from pyrogram.handlers.message_handler import MessageHandler

@@ -1,7 +1,7 @@
 import logging
 import os.path
 from ..util import dedent
-from time import ctime, time, sleep
+from time import ctime, time
 from typing import List
 
 from pyrogram.enums import ParseMode
@@ -9,7 +9,7 @@ from pyrogram.types import (CallbackQuery, InlineKeyboardButton,
                             InlineKeyboardMarkup)
 
 from .. import app
-from ..rate_limiter import catch_rate_limit, sync_catch_rate_limit
+from ..rate_limiter import catch_rate_limit
 from ..util import human_readable
 from .type import Download
 from ..manage_path import VirtualFileSystem, BASE_FOLDER
@@ -31,6 +31,7 @@ async def run():
         for _ in range(app.max_concurrent_transmissions - running):
             try:
                 download = await download_queue.get()
+                logging.info(f"Dequeued download id={download.id} path={download.filepath} | queue size={download_queue.qsize()}")
                 if download.filename in [f.get_name() for f in tasks]:
                     text = f'File "{download.filename}" already present in download queue'
                     logging.info(text)
@@ -41,7 +42,7 @@ async def run():
 
                 task = asyncio.create_task(download_file(download), name=download.filepath)
                 tasks.append(task)
-                logging.info(f'Downloads running: ( {running} )')
+                logging.info(f'Started task for id={download.id} ({download.filepath}) | running before start={running}')
                 running += 1
             except asyncio.QueueEmpty:
                 break
@@ -56,6 +57,7 @@ async def run():
 
 async def enqueue_download(download: Download):
     await download_queue.put(download)
+    logging.info(f"Enqueued download id={download.id} path={download.filepath} | queue size={download_queue.qsize()}")
 
 
 async def download_file(download: Download):
@@ -74,6 +76,7 @@ async def download_file(download: Download):
         running -= 1
         return
 
+    logging.info(f"Starting download id={download.id} -> {file_path}")
     await catch_rate_limit(download.progress_message.edit, wait=False, text=f"Downloading __{download.filepath}__...",
                            parse_mode=ParseMode.MARKDOWN)
     download.started = time()
@@ -104,6 +107,7 @@ async def progress(received: int, total: int, download: Download):
         running -= 1
         await catch_rate_limit(download.progress_message.edit, wait=True, text=dedent(text),
                                parse_mode=ParseMode.MARKDOWN)
+        logging.info(f"Completed download id={download.id} ({download.filepath}) | elapsed={download.last_call - download.started:.2f}s")
         return
 
     # This function is called every time that 1MB is downloaded
@@ -118,6 +122,7 @@ async def progress(received: int, total: int, download: Download):
                                parse_mode=ParseMode.MARKDOWN,
                                )
         await app.stop_transmission()
+        logging.info(f"Stopped download id={download.id} ({download.filepath})")
         return
     # Only update download progress if the last update is 1 second old
     # : This avoid flood on networks that is more than 1MB/s speed

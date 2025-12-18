@@ -1,6 +1,4 @@
-import datetime
 import logging
-import os
 
 from .util import dedent
 
@@ -12,6 +10,31 @@ from .rate_limiter import catch_rate_limit
 from .manage_path import VirtualFileSystem
 
 from .db import Chat
+
+
+MAX_MESSAGE_LENGTH = 4000
+
+
+def _split_message(text: str, max_len: int = MAX_MESSAGE_LENGTH) -> list[str]:
+    """Split text into chunks that respect Telegram message length limits."""
+    chunks = []
+    current = []
+    current_len = 0
+
+    for line in text.splitlines():
+        # +1 for the newline we'll re-join
+        line_len = len(line) + 1
+        if current_len + line_len > max_len and current:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += line_len
+
+    if current:
+        chunks.append("\n".join(current))
+
+    return chunks
 
 
 async def start(_, msg: Message, chat: Chat):
@@ -158,5 +181,14 @@ async def show_folder(_, msg: Message, chat: Chat):
     """)
 
     logging.info(text)
+
+    # Telegram limits messages to 4096 chars; split long listings into multiple replies.
+    if len(text) > MAX_MESSAGE_LENGTH:
+        chunks = _split_message(text, MAX_MESSAGE_LENGTH - 32)
+        parts = len(chunks)
+        for idx, chunk in enumerate(chunks, start=1):
+            header = f"(Part {idx}/{parts})\n" if parts > 1 else ""
+            await catch_rate_limit(msg.reply, text=f"{header}{chunk}")
+        return
 
     await catch_rate_limit(msg.reply, text=text)

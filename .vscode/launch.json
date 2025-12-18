@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Telegram Downloader Bot",
+            "type": "python",
+            "request": "launch",
+            "module": "bot",
+            "cwd": "${workspaceFolder}/telegram-downloader",
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": true
+        }
+    ]
+}

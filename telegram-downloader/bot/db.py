@@ -1,11 +1,8 @@
-import asyncio
 import logging
 
-import aiosqlite
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, select
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, select
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import sessionmaker, relationship
 import datetime
 
 Base = declarative_base()

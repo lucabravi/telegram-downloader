@@ -1,7 +1,6 @@
 import os
 import re
 import logging
-from distutils.util import strtobool
 from pathlib import PurePath
 
 from . import BASE_FOLDER
@@ -9,7 +8,18 @@ from . import BASE_FOLDER
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-ALLOW_ROOT_FOLDER = strtobool(os.getenv('ALLOW_ROOT_FOLDER', False))
+def _env_bool(name: str, default: bool = False) -> bool:
+    """
+    Lightweight bool parser for env vars. Accepts common truthy strings; falls back to default on missing.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ('1', 'true', 't', 'yes', 'y', 'on')
+
+
+# Default must be a string for parser; avoid TypeError when env var is missing.
+ALLOW_ROOT_FOLDER = _env_bool('ALLOW_ROOT_FOLDER', default=False)
 
 
 class VirtualFileSystem:
