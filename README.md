@@ -30,7 +30,7 @@ lib sometimes needs to be builded locally.
 
 ## Environment variables
 
-Observation: *This bot support dot files(`.env`)*
+Observation: *This bot supports dot files (`.env`)*
 
 Now that you've your own ID/Hash it has be passed to `TELEGRAM_API_ID` and
 `TELEGRAM_API_HASH` environment variables, you also need to set the bot token(create
@@ -44,6 +44,25 @@ everyone.
 
 The SQLite database is stored at `/db/database_file.db`, so make sure `/db` is a writable
 volume when using Docker.
+
+## How it works
+
+- Commands are restricted to users listed in `ADMINS`.
+- A virtual filesystem is rooted at `DOWNLOAD_FOLDER` to prevent escaping the download root.
+- Downloads are queued and processed up to the configured concurrency.
+- Each download updates a single “origin” message on start/finish.
+- A single status message per chat summarizes all active downloads.
+
+## Rate limiting
+
+Telegram rate limits are handled by a shared limiter:
+- Local throttling at ~3 messages/second.
+- FloodWaits are honored without blocking downloads.
+- “Must-send” replies are queued and delivered later if needed.
+
+## Logging
+
+- Download status is printed to console when it updates.
 
 ## Running
 
@@ -60,7 +79,7 @@ When you wanna stop the bot, press CTRL+\\
 
 This bot is so simple that you only need to set some environment variables and mount a
 folder inside the container to keep your downloads, for this, use this command replacing
-values with your owns:
+values with your own:
 
 ```bash
 # Build a docker image to your own server (Dockerfile in repo root)

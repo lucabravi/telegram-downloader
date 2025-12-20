@@ -24,6 +24,8 @@ active_downloads: dict[int, dict[int, Download]] = {}
 status_messages = {}
 last_status_text = {}
 STATUS_INTERVAL = 5
+RUNNING_LOG_INTERVAL = 10
+_last_running_log = 0.0
 
 
 def _get_chat_downloads(chat_id: int) -> dict[int, Download]:
@@ -123,6 +125,7 @@ async def status_loop():
             else:
                 await catch_rate_limit(current.edit, wait=False, text=text)
                 last_status_text[chat_id] = text
+            logging.info(f"Download status for chat {chat_id}:\n{text}")
 
 
 async def run():
@@ -153,7 +156,11 @@ async def run():
                 logging.error(e)
                 break
 
-        logging.info(f'Max downloads running: {running}')
+        global _last_running_log
+        now = time()
+        if now - _last_running_log >= RUNNING_LOG_INTERVAL:
+            logging.info(f'Max downloads running: {running}')
+            _last_running_log = now
         await asyncio.gather(*tasks)
         await asyncio.sleep(1)
 
@@ -232,6 +239,8 @@ async def progress(received: int, total: int, download: Download):
             last_status_text.pop(chat_id, None)
             if old:
                 await catch_rate_limit(old.delete, wait=False)
+                await asyncio.sleep(2)
+            await enqueue_message(app.send_message, chat_id=chat_id, text="Downloads completed.")
         logging.info(f"Completed download id={download.id} ({download.filepath}) | elapsed={download.last_call - download.started:.2f}s")
         return
 
@@ -255,6 +264,8 @@ async def progress(received: int, total: int, download: Download):
             last_status_text.pop(chat_id, None)
             if old:
                 await catch_rate_limit(old.delete, wait=False)
+                await asyncio.sleep(2)
+            await enqueue_message(app.send_message, chat_id=chat_id, text="Downloads completed.")
         await app.stop_transmission()
         logging.info(f"Stopped download id={download.id} ({download.filepath})")
         return
