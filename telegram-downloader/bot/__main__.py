@@ -52,6 +52,11 @@ app.add_handler(MessageHandler(
     check_admins(commands.show_folder),
     command('ls')
 ))
+
+app.add_handler(MessageHandler(
+    check_admins(commands.show_pwd),
+    command('pwd')
+))
 # endregion MANAGE PATH COMMANDS
 
 # region GET MEDIA

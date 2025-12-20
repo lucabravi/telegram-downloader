@@ -57,6 +57,7 @@ async def bot_help(_, msg: Message, chat: Chat):
         /autofolder | put downloads on a subfolder named after the forwarded original group
         /autoname | instead of using original filename try to get the best from filename and caption
         /ls | show folders and files in current directories
+        /pwd | show current directory
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text)
@@ -191,4 +192,23 @@ async def show_folder(_, msg: Message, chat: Chat):
             await catch_rate_limit(msg.reply, text=f"{header}{chunk}")
         return
 
+    await catch_rate_limit(msg.reply, text=text)
+
+
+async def show_pwd(_, msg: Message, chat: Chat):
+    vfs = VirtualFileSystem()
+    ok, cur_path = vfs.abs_cd(chat.current_dir)
+    if not ok:
+        text = dedent("""There's a problem with saved current folder, i reset it to root.
+                Change folder with /cd __foldername__ or create a new folder with /mkdir __foldername__.""")
+        await chat.update_current_dir('.')
+        await catch_rate_limit(msg.reply, text=text)
+        return
+
+    current = '/' if vfs.current_rel_path == '.' else vfs.current_rel_path
+    text = dedent(f"""
+        Current directory:
+        {current}
+    """)
+    logging.info(text)
     await catch_rate_limit(msg.reply, text=text)

@@ -53,7 +53,7 @@ async def create_tables():
         await conn.run_sync(Base.metadata.create_all)
 
 
-engine = create_async_engine('sqlite+aiosqlite:///database_file.db', future=True, echo=False)
+engine = create_async_engine('sqlite+aiosqlite:////db/database_file.db', future=True, echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 

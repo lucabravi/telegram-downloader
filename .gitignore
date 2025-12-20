@@ -3,6 +3,7 @@
 .idea/
 __pycache__/
 test/
+db/
 
 # Files
 .env
