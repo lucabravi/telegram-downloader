@@ -15,6 +15,16 @@ last_sent_message_id = {}
 _rate_lock = asyncio.Lock()
 _message_queue = asyncio.Queue()
 
+def _log_rate_limited_message(function, kwargs, wait_time: int):
+    text = kwargs.get("text")
+    if text is None:
+        return
+    func_name = getattr(function, "__name__", "call")
+    snippet = text.replace("\n", " ").strip()
+    if len(snippet) > 200:
+        snippet = f"{snippet[:200]}..."
+    logging.info(f"FloodWait({wait_time}s) queued message via {func_name}: {snippet}")
+
 async def catch_rate_limit(function, wait=True, *args, **kwargs):
     global last_block, last_block_seconds
 
@@ -76,6 +86,7 @@ async def catch_rate_limit(function, wait=True, *args, **kwargs):
             return result
         except FloodWait as e:
             logging.warning(f'async catch_rate_limit - FloodWait: {e.value}s')
+            _log_rate_limited_message(function, kwargs, e.value)
             
             # Aggiorniamo lo stato globale del blocco acquisendo brevemente il lock
             async with _rate_lock:
@@ -94,15 +105,22 @@ async def catch_rate_limit(function, wait=True, *args, **kwargs):
 
 
 async def enqueue_message(function, *args, **kwargs):
-    await _message_queue.put((function, args, kwargs))
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    await _message_queue.put((function, args, kwargs, future))
+    return future
 
 
 async def run_message_queue():
     while True:
-        function, args, kwargs = await _message_queue.get()
+        function, args, kwargs, future = await _message_queue.get()
         try:
-            await catch_rate_limit(function, wait=True, *args, **kwargs)
+            result = await catch_rate_limit(function, wait=True, *args, **kwargs)
+            if not future.done():
+                future.set_result(result)
         except Exception as exc:
             logging.error(f'message_queue | {exc}')
+            if not future.done():
+                future.set_exception(exc)
         finally:
             _message_queue.task_done()

@@ -15,7 +15,7 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from ..db import Chat
 from .manager import enqueue_download
 from .type import Download
-from ..rate_limiter import catch_rate_limit
+from ..rate_limiter import catch_rate_limit, enqueue_message
 from ..manage_path import VirtualFileSystem
 
 
@@ -25,15 +25,15 @@ async def add_file(_, msg: Message, chat: Chat):
     if not ok:
         text = ("There's a problem with saved current folder, change folder with /cd __foldername__ or create"
                 " a new folder with /mkdir __foldername__.")
-        await catch_rate_limit(msg.reply, text=text)
+        await enqueue_message(msg.reply, text=text)
         return
 
     if chat.current_dir in ('/', '.', '') and not vfs.allow_root_folder and not chat.autofolder:
         folders, files = vfs.ls()
         if len(folders) == 0:
             text = "You can't download in this folder, create a subfolder."
-            await catch_rate_limit(msg.reply,
-                                   text=text)
+            await enqueue_message(msg.reply,
+                                  text=text)
             return
         # else:
         #     text = dedent(f"""
@@ -47,14 +47,14 @@ async def add_file(_, msg: Message, chat: Chat):
         #                            text=text)
         #     return
         else:
-            await catch_rate_limit(msg.reply,
-                                   text="Root folder selected, please select one of the subfolders or create a new one with /mkdir __folder__.",
-                                   quote=True,
-                                   parse_mode=ParseMode.MARKDOWN,
-                                   reply_markup=InlineKeyboardMarkup([[
-                                       InlineKeyboardButton(f"{f}", callback_data=f"cd {f}") for f in folders
-                                   ]])
-                                   )
+            await enqueue_message(msg.reply,
+                                  text="Root folder selected, please select one of the subfolders or create a new one with /mkdir __folder__.",
+                                  quote=True,
+                                  parse_mode=ParseMode.MARKDOWN,
+                                  reply_markup=InlineKeyboardMarkup([[
+                                      InlineKeyboardButton(f"{f}", callback_data=f"cd {f}") for f in folders
+                                  ]])
+                                  )
             return
 
     if chat.autofolder and msg.forward_from_chat and msg.forward_from_chat.id < 0 and msg.forward_from_chat.title.strip() != '':
@@ -64,7 +64,7 @@ async def add_file(_, msg: Message, chat: Chat):
                 {info}
                 {vfs.get_current_dir_info()}
             """)
-            await catch_rate_limit(msg.reply, text=text)
+            await enqueue_message(msg.reply, text=text)
             return
         path = os.path.join(vfs.current_rel_path, info)
     else:
@@ -88,20 +88,20 @@ async def add_file(_, msg: Message, chat: Chat):
     if isfile(vfs.relative_to_absolute_path(filepath)):
         text = f"File with the same name ({filename}) already exists!"
         logging.info(text)
-        await catch_rate_limit(msg.reply, text=text, quote=True)
+        await enqueue_message(msg.reply, text=text, quote=True)
         return
     text = f"File __{filepath}__ added to list."
     logging.info(text)
-    waiting = await catch_rate_limit(msg.reply, text=text,
-                                     quote=True,
-                                     parse_mode=ParseMode.MARKDOWN)
+    waiting = await enqueue_message(msg.reply, text=text,
+                                    quote=True,
+                                    parse_mode=ParseMode.MARKDOWN)
     await enqueue_download(Download(
         id=randint(1_000_000_000, 9_999_999_999),
         filename=filename,
         filepath=filepath,
         from_message=msg,
         added=time(),
-        progress_message=waiting
+        progress_message_future=waiting
     ))
 
 

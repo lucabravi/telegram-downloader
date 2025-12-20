@@ -48,6 +48,44 @@ def _format_status(downloads: list[Download]) -> str:
     return "\n".join(lines).strip()
 
 
+def _try_set_progress_message(download: Download):
+    if download.progress_message is not None:
+        return
+    future = download.progress_message_future
+    if future is None:
+        return
+    if future.done():
+        try:
+            message = future.result()
+            if message is not None:
+                download.progress_message = message
+        except Exception:
+            pass
+
+
+async def _enqueue_edit_when_ready(download: Download, **kwargs):
+    _try_set_progress_message(download)
+    if download.progress_message is not None:
+        await enqueue_message(download.progress_message.edit, **kwargs)
+        return
+
+    future = download.progress_message_future
+    if future is None:
+        return
+
+    async def _wait_and_edit():
+        try:
+            message = await future
+            if message is None:
+                return
+            download.progress_message = message
+            await enqueue_message(message.edit, **kwargs)
+        except Exception as exc:
+            logging.error(f'progress_message_wait | {exc}')
+
+    asyncio.create_task(_wait_and_edit())
+
+
 async def status_loop():
     while True:
         await asyncio.sleep(STATUS_INTERVAL)
@@ -133,8 +171,10 @@ async def download_file(download: Download):
             Retry changing folder
         """
         logging.info(text)
-        await catch_rate_limit(
-            download.progress_message.edit, wait=True, text=dedent(text), parse_mode=ParseMode.MARKDOWN
+        await _enqueue_edit_when_ready(
+            download,
+            text=dedent(text),
+            parse_mode=ParseMode.MARKDOWN
         )
         running -= 1
         return
@@ -142,8 +182,8 @@ async def download_file(download: Download):
     logging.info(f"Starting download id={download.id} -> {file_path}")
     chat_id = download.from_message.chat.id
     _get_chat_downloads(chat_id)[download.id] = download
-    await enqueue_message(
-        download.progress_message.edit,
+    await _enqueue_edit_when_ready(
+        download,
         text=f"Downloading __{download.filepath}__...",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=InlineKeyboardMarkup([[
@@ -176,8 +216,8 @@ async def progress(received: int, total: int, download: Download):
                 """
         logging.info(text)
         running -= 1
-        await enqueue_message(
-            download.progress_message.edit,
+        await _enqueue_edit_when_ready(
+            download,
             text=dedent(text),
             parse_mode=ParseMode.MARKDOWN
         )
@@ -199,8 +239,8 @@ async def progress(received: int, total: int, download: Download):
         running -= 1
         text = f"Download of __{download.filepath}__ stopped!"
         logging.info(text)
-        await enqueue_message(
-            download.progress_message.edit,
+        await _enqueue_edit_when_ready(
+            download,
             text=text,
             parse_mode=ParseMode.MARKDOWN
         )
