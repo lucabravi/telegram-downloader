@@ -8,5 +8,7 @@ db/
 # Files
 .env
 .env.prod
+docker-compose.yml
+docker-compose.local.yml
 bot.session
 bot.session-journal
