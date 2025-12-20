@@ -15,14 +15,14 @@ To setup this bot on your own server you'll need a Telegram API ID/Hash, it can 
 created at [My Telegram] website, do this before continue
 
 If you want to run this bot on a docker server follow [Environment variables](#Environment%20variables)
-guide and then [Docker install](#Docker%20install) guide.
+guide and then [Docker run](#Docker%20run) guide.
 
 ## Install dependencies
 
 To install all needed dependencies use pip:
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m pip install -r ./telegram-downloader/requirements.txt
 ```
 
 If you have any issue, try to install build-essentials in your system, the `psutil`
@@ -42,11 +42,15 @@ as `DOWNLOAD_FOLDER`
 You also need to set the bot administrator list using `ADMINS`, use spaces to separate
 everyone.
 
+The SQLite database is stored at `/db/database_file.db`, so make sure `/db` is a writable
+volume when using Docker.
+
 ## Running
 
 To run this bot it has to be started as a module, to this use `-m` flag:
 
 ```bash
+cd telegram-downloader
 python3 -m bot
 ```
 
@@ -59,11 +63,12 @@ folder inside the container to keep your downloads, for this, use this command r
 values with your owns:
 
 ```bash
-# Build a docker image to your own server
-docker build -t telegram-downloader .
+# Build a docker image to your own server (Dockerfile in repo root)
+docker build -t telegram-downloader -f Dockerfile ./telegram-downloader
 
 # Now run this
 docker run -d \
+    -v /home/$USER/TelegramDB:/db \
     -v /home/$USER/Telegram:/data \
     -e TELEGRAM_API_ID=123456 \
     -e TELEGRAM_API_HASH="yourTelegramAPIHash" \
