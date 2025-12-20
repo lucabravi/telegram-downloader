@@ -9,7 +9,7 @@ from pyrogram.types import (CallbackQuery, InlineKeyboardButton,
                             InlineKeyboardMarkup)
 
 from .. import app
-from ..rate_limiter import catch_rate_limit
+from ..rate_limiter import catch_rate_limit, enqueue_message, last_sent_message_id
 from ..util import human_readable
 from .type import Download
 from ..manage_path import VirtualFileSystem, BASE_FOLDER
@@ -20,6 +20,69 @@ running: int = 0
 stop: List[int] = []
 
 download_queue = asyncio.Queue()
+active_downloads: dict[int, dict[int, Download]] = {}
+status_messages = {}
+last_status_text = {}
+STATUS_INTERVAL = 5
+
+
+def _get_chat_downloads(chat_id: int) -> dict[int, Download]:
+    return active_downloads.setdefault(chat_id, {})
+
+
+def _format_status(downloads: list[Download]) -> str:
+    lines = ["Downloading:"]
+    for download in downloads:
+        total = download.last_total or download.size
+        received = download.last_received
+        if total <= 0:
+            continue
+        lines.append(download.filepath)
+        lines.append(
+            f"Progress: {human_readable(received)} of {human_readable(total)} ({download.last_percent:.2f}%)"
+        )
+        lines.append(
+            f"Download speed: {human_readable(download.last_speed)}/s | Average: {human_readable(download.last_avg_speed)}/s"
+        )
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+async def status_loop():
+    while True:
+        await asyncio.sleep(STATUS_INTERVAL)
+        for chat_id, downloads in list(active_downloads.items()):
+            if not downloads:
+                old = status_messages.pop(chat_id, None)
+                last_status_text.pop(chat_id, None)
+                if old:
+                    await catch_rate_limit(old.delete, wait=False)
+                continue
+
+            text = _format_status(list(downloads.values()))
+            if not text or text == last_status_text.get(chat_id):
+                continue
+
+            current = status_messages.get(chat_id)
+            last_sent = last_sent_message_id.get(chat_id)
+            should_resend = current is None or (last_sent is not None and current.id != last_sent)
+
+            if should_resend:
+                if current:
+                    await catch_rate_limit(current.delete, wait=False)
+                message = await catch_rate_limit(
+                    app.send_message,
+                    wait=False,
+                    chat_id=chat_id,
+                    text=text
+                )
+                if message is None:
+                    continue
+                status_messages[chat_id] = message
+                last_status_text[chat_id] = text
+            else:
+                await catch_rate_limit(current.edit, wait=False, text=text)
+                last_status_text[chat_id] = text
 
 
 async def run():
@@ -77,8 +140,16 @@ async def download_file(download: Download):
         return
 
     logging.info(f"Starting download id={download.id} -> {file_path}")
-    await catch_rate_limit(download.progress_message.edit, wait=False, text=f"Downloading __{download.filepath}__...",
-                           parse_mode=ParseMode.MARKDOWN)
+    chat_id = download.from_message.chat.id
+    _get_chat_downloads(chat_id)[download.id] = download
+    await enqueue_message(
+        download.progress_message.edit,
+        text=f"Downloading __{download.filepath}__...",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("Stop", callback_data=f"stop {download.id}")
+        ]])
+    )
     download.started = time()
     # result = await app.download_media(
     result = app.download_media(
@@ -105,8 +176,20 @@ async def progress(received: int, total: int, download: Download):
                 """
         logging.info(text)
         running -= 1
-        await catch_rate_limit(download.progress_message.edit, wait=True, text=dedent(text),
-                               parse_mode=ParseMode.MARKDOWN)
+        await enqueue_message(
+            download.progress_message.edit,
+            text=dedent(text),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        chat_id = download.from_message.chat.id
+        downloads = _get_chat_downloads(chat_id)
+        downloads.pop(download.id, None)
+        if not downloads:
+            active_downloads.pop(chat_id, None)
+            old = status_messages.pop(chat_id, None)
+            last_status_text.pop(chat_id, None)
+            if old:
+                await catch_rate_limit(old.delete, wait=False)
         logging.info(f"Completed download id={download.id} ({download.filepath}) | elapsed={download.last_call - download.started:.2f}s")
         return
 
@@ -116,11 +199,20 @@ async def progress(received: int, total: int, download: Download):
         running -= 1
         text = f"Download of __{download.filepath}__ stopped!"
         logging.info(text)
-        await catch_rate_limit(download.progress_message.edit,
-                               wait=True,
-                               text=text,
-                               parse_mode=ParseMode.MARKDOWN,
-                               )
+        await enqueue_message(
+            download.progress_message.edit,
+            text=text,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        chat_id = download.from_message.chat.id
+        downloads = _get_chat_downloads(chat_id)
+        downloads.pop(download.id, None)
+        if not downloads:
+            active_downloads.pop(chat_id, None)
+            old = status_messages.pop(chat_id, None)
+            last_status_text.pop(chat_id, None)
+            if old:
+                await catch_rate_limit(old.delete, wait=False)
         await app.stop_transmission()
         logging.info(f"Stopped download id={download.id} ({download.filepath})")
         return
@@ -130,29 +222,20 @@ async def progress(received: int, total: int, download: Download):
     if download.last_update != 0 and (time() - download.last_update) < 1:
         download.size = total
         download.last_call = now
+        download.last_received = received
+        download.last_total = total
         return
     percent = received / total * 100
     if download.last_call == 0:
         download.last_call = now - 1
     speed = (1024 ** 2) / (now - download.last_call)
     avg_speed = received / (now - download.started)
-    text = f"""
-        Downloading: __{download.filepath}__
-
-        Downloaded __{human_readable(received)}__ of __{human_readable(total)}__ (__{percent:.2f}%__)
-        Current download speed: __{human_readable(speed)}/s__
-        Average download speed: __{human_readable(avg_speed)}/s__  
-    """
-    logging.debug(text)
-    await catch_rate_limit(
-        download.progress_message.edit,
-        wait=False,
-        text=dedent(text),
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("Stop", callback_data=f"stop {download.id}")
-        ]])
-    )
+    download.last_received = received
+    download.last_total = total
+    download.last_speed = speed
+    download.last_avg_speed = avg_speed
+    download.last_percent = percent
+    logging.debug(f"Progress update id={download.id} {percent:.2f}%")
     download.last_update = now
     download.last_call = now
 

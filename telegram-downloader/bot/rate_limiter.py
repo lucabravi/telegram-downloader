@@ -2,15 +2,18 @@ import asyncio
 import logging
 from datetime import datetime
 from pyrogram.errors import FloodWait  # Assumiamo tu stia usando Pyrogram
+from pyrogram.types import Message
 
 # --- GLOBAL STATE ---
 last_messages = []
 # Inizializziamo al 1970 per evitare che il controllo scatti erroneamente all'avvio del bot
 last_block = datetime.fromtimestamp(0) 
 last_block_seconds = 0
+last_sent_message_id = {}
 
 # Lock per proteggere l'accesso alle variabili globali in ambiente concorrente
 _rate_lock = asyncio.Lock()
+_message_queue = asyncio.Queue()
 
 async def catch_rate_limit(function, wait=True, *args, **kwargs):
     global last_block, last_block_seconds
@@ -66,7 +69,11 @@ async def catch_rate_limit(function, wait=True, *args, **kwargs):
 
         # 4. Esecuzione Funzione (Chiamata API effettiva)
         try:
-            return await function(*args, **kwargs)
+            result = await function(*args, **kwargs)
+            func_name = getattr(function, "__name__", "")
+            if func_name in ("send_message", "reply") and isinstance(result, Message):
+                last_sent_message_id[result.chat.id] = result.id
+            return result
         except FloodWait as e:
             logging.warning(f'async catch_rate_limit - FloodWait: {e.value}s')
             
@@ -84,3 +91,18 @@ async def catch_rate_limit(function, wait=True, *args, **kwargs):
             # Dormiamo per il tempo richiesto da Telegram (fuori dal lock)
             await asyncio.sleep(e.value)
             # Il ciclo while ripartirà
+
+
+async def enqueue_message(function, *args, **kwargs):
+    await _message_queue.put((function, args, kwargs))
+
+
+async def run_message_queue():
+    while True:
+        function, args, kwargs = await _message_queue.get()
+        try:
+            await catch_rate_limit(function, wait=True, *args, **kwargs)
+        except Exception as exc:
+            logging.error(f'message_queue | {exc}')
+        finally:
+            _message_queue.task_done()

@@ -6,6 +6,7 @@ from pyrogram.handlers.callback_query_handler import CallbackQueryHandler
 from pyrogram.handlers.message_handler import MessageHandler
 
 from . import app, commands, download
+from .rate_limiter import run_message_queue
 from .util import check_admins, check_admins_callback
 from .db import create_tables
 
@@ -89,6 +90,8 @@ loop = asyncio.get_event_loop()
 loop.create_task(create_tables())
 
 loop.create_task(download.manager.run())
+loop.create_task(download.manager.status_loop())
+loop.create_task(run_message_queue())
 loop.run_forever()
 loop.close()
 
