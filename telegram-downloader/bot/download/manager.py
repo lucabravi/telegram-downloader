@@ -97,13 +97,14 @@ async def status_loop():
                     await catch_rate_limit(old.delete, wait=False)
                 continue
 
-            text = _format_status(list(downloads.values()))
-            if not text or text == last_status_text.get(chat_id):
-                continue
-
             current = status_messages.get(chat_id)
             last_sent = last_sent_message_id.get(chat_id)
             should_resend = current is None or (last_sent is not None and current.id != last_sent)
+            text = _format_status(list(downloads.values()))
+            if not text:
+                continue
+            if not should_resend and text == last_status_text.get(chat_id):
+                continue
 
             if should_resend:
                 if current:

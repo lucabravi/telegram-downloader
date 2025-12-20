@@ -81,7 +81,7 @@ async def catch_rate_limit(function, wait=True, *args, **kwargs):
         try:
             result = await function(*args, **kwargs)
             func_name = getattr(function, "__name__", "")
-            if func_name in ("send_message", "reply") and isinstance(result, Message):
+            if isinstance(result, Message) and not func_name.startswith("edit"):
                 last_sent_message_id[result.chat.id] = result.id
             return result
         except FloodWait as e:
