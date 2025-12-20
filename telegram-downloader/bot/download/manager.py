@@ -108,6 +108,7 @@ async def status_loop():
             if should_resend:
                 if current:
                     await catch_rate_limit(current.delete, wait=False)
+                    await asyncio.sleep(2)
                 message = await catch_rate_limit(
                     app.send_message,
                     wait=False,

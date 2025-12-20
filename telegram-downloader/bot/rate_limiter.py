@@ -124,3 +124,4 @@ async def run_message_queue():
                 future.set_exception(exc)
         finally:
             _message_queue.task_done()
+            await asyncio.sleep(0.35)
