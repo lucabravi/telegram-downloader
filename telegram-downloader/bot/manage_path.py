@@ -105,6 +105,8 @@ class VirtualFileSystem:
                 directories.append(item)
             else:
                 files.append(item)
+        directories.sort(key=str.casefold)
+        files.sort(key=str.casefold)
         logging.info(f"Directories: [{','.join(directories)}]")
         logging.info(f"Files: [{','.join(files)}]")
         return directories, files

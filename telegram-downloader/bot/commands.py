@@ -140,17 +140,18 @@ async def create_folder(_, msg: Message, chat: Chat):
         await catch_rate_limit(msg.reply, text=text)
         return
 
-    ok, err = vfs.mkdir(new_folder)
+    ok, dir_name = vfs.mkdir(new_folder)
     if not ok:
         text = dedent(f"""
-        {err}
+        {dir_name}
         {vfs.get_current_dir_info()}""")
         await catch_rate_limit(msg.reply, text=text)
         return
 
+    base_path = '/' if vfs.current_rel_path == '.' else f"/{vfs.current_rel_path}"
+    full_path = f"{base_path}/{dir_name}".replace('//', '/')
     text = dedent(f"""
-        Folder {new_folder} created:
-        {vfs.get_current_dir_info()}
+        Folder "{full_path}" created.
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[
