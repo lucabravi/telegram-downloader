@@ -7,13 +7,15 @@ services:
     image: telegram-downloader
     container_name: telegram-downloader
     volumes:
+      - ./db:/db
       - ./data:/data
     #environment:
     #  - TELEGRAM_API_ID=
     #  - TELEGRAM_API_HASH=
     #  - BOT_TOKEN=
-    #  - ADMINS=@
-    #  - ALLOW_ROOT_FOLDER=True
+    #  - ADMINS=@username1 @username2
+    #  - ALLOW_ROOT_FOLDER=False
+    #  - DOWNLOAD_FOLDER=/data
     restart: "no"
     logging:
       driver: local
