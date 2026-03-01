@@ -51,15 +51,18 @@ async def start(_, msg: Message, chat: Chat):
 
 async def bot_help(_, msg: Message, chat: Chat):
     text = dedent(f"""
-        /usage | show disk usage
-        /cd __foldername__ | choose the subfolder where to download the files
-        /cd | go to root foolder
-        /autofolder | put downloads on a subfolder named after the forwarded original group
-        /autoname | instead of using original filename try to get the best from filename and caption
-        /multipart | toggle ranged multipart direct downloads
-        /ls | show folders and files in current directories
-        /pwd | show current directory
-        Send an AnimeUnity URL to queue episodes into Anime/Season folders
+        /start | avvia il bot
+        /help | mostra questo aiuto
+        /usage | mostra utilizzo disco
+        /cd __cartella__ | entra in una sottocartella
+        /cd | torna alla cartella root
+        /mkdir __cartella__ | crea una nuova cartella
+        /ls | mostra cartelle e file correnti
+        /pwd | mostra la cartella corrente
+        /autofolder | attiva/disattiva sottocartella automatica (da gruppo inoltrato)
+        /autoname | attiva/disattiva rinomina automatica file
+        /multipart | attiva/disattiva download multipart per URL diretti
+        Invia un file Telegram o un URL AnimeUnity (/anime/<id>-<slug>)
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text)
