@@ -24,6 +24,7 @@ from .animeunity import (
     AnimeUnityError,
     extract_animeunity_url,
     resolve_animeunity_downloads,
+    split_series_and_trailing_season,
 )
 
 
@@ -176,7 +177,8 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
         await enqueue_message(msg.reply, text=f"Unexpected error: {exc}", quote=True)
         return
 
-    folder_name = vfs.cleanup_path_name(anime_name) or "animeunity"
+    series_name, season_from_title = split_series_and_trailing_season(anime_name)
+    folder_name = vfs.cleanup_path_name(series_name or anime_name) or "animeunity"
     ok, info = vfs.mkdir(folder_name)
     if not ok:
         text = dedent(f"""
@@ -193,7 +195,7 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
     queued = 0
     skipped_existing = 0
     for episode in episodes:
-        season_folder = _season_folder_name(episode.season_number)
+        season_folder = _season_folder_name(episode.season_number or season_from_title)
         season_path = os.path.normpath(os.path.join(series_path, season_folder))
         if season_path not in created_seasons:
             os.makedirs(vfs.relative_to_absolute_path(season_path), exist_ok=True)
@@ -215,7 +217,7 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
         queued += 1
 
     summary = dedent(f"""
-        AnimeUnity: __{anime_name}__
+        AnimeUnity: __{series_name or anime_name}__
         Destination: __{series_path}__
         Seasons: __{', '.join(sorted({os.path.basename(p) for p in created_seasons})) or 'Season 01'}__
         Episodes queued: __{queued}__

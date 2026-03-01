@@ -22,6 +22,10 @@ OG_TITLE_PATTERN = re.compile(
 )
 FILE_SEASON_PATTERN = re.compile(r"\bS0*(\d{1,2})E\d{1,4}\b", re.IGNORECASE)
 TITLE_SEASON_PATTERN = re.compile(r"(?:season|stagione)\s*0*(\d{1,2})", re.IGNORECASE)
+TRAILING_TITLE_SEASON_PATTERN = re.compile(
+    r"^(?P<base>.*?)(?:\s+|[-:|~]\s*)(?:season|stagione)\s*0*(?P<season>\d{1,2})\s*$",
+    re.IGNORECASE,
+)
 BATCH_SIZE = 120
 REQUEST_TIMEOUT = 20
 
@@ -124,6 +128,26 @@ def resolve_animeunity_downloads(url: str) -> tuple[str, list[EpisodeDownload]]:
         raise AnimeUnityError("Could not resolve direct download links for any episode.")
 
     return anime_name, downloads
+
+
+def split_series_and_trailing_season(title: str | None) -> tuple[str | None, int | None]:
+    """Split titles like 'Kamisama Kiss Season 2' into ('Kamisama Kiss', 2)."""
+    if title is None:
+        return None, None
+
+    cleaned = re.sub(r"\s+", " ", title).strip(" -|~")
+    if not cleaned:
+        return None, None
+
+    match = TRAILING_TITLE_SEASON_PATTERN.match(cleaned)
+    if not match:
+        return cleaned, None
+
+    base = match.group("base").strip(" -|~")
+    season = int(match.group("season"))
+    if not base:
+        return cleaned, season
+    return base, season
 
 
 def _fetch_episode_infos(session: requests.Session, info_api_url: str, episodes_count: int) -> list[dict]:
