@@ -11,6 +11,7 @@ class Download:
     added: float
     source: str = "telegram"
     source_url: str | None = None
+    multipart_enabled: bool = True
     progress_message: Message | None = None
     progress_message_future: asyncio.Future | None = None
     started: float = 0

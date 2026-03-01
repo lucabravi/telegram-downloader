@@ -1,6 +1,6 @@
 import logging
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, select
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, select, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 import datetime
@@ -14,6 +14,7 @@ class Chat(Base):
     current_dir = Column(String, default='.')
     autofolder = Column(Boolean, default=False)
     autoname = Column(Boolean, default=False)
+    multipart = Column(Boolean, default=True)
     last_message_id = Column(Integer)
     last_message_date = Column(DateTime, default=datetime.datetime.now)
 
@@ -21,6 +22,8 @@ class Chat(Base):
     async def update_chat(cls, msg):
         async with async_session() as session:
             chat, create = await get_or_create(cls, id=msg.chat.id)
+            if getattr(chat, "multipart", None) is None:
+                chat.multipart = True
             chat.last_message_id = msg.id
             chat.last_message_date = datetime.datetime.now()
             await session.commit()
@@ -44,6 +47,12 @@ class Chat(Base):
             chat.autoname = autoname
             await session.commit()
 
+    async def update_multipart(self, multipart) -> None:
+        async with async_session() as session:
+            chat = await session.get(Chat, self.id)
+            chat.multipart = multipart
+            await session.commit()
+
 
 
 
@@ -51,6 +60,10 @@ class Chat(Base):
 async def create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        result = await conn.execute(text("PRAGMA table_info(chat)"))
+        columns = {row[1] for row in result.fetchall()}
+        if "multipart" not in columns:
+            await conn.execute(text("ALTER TABLE chat ADD COLUMN multipart BOOLEAN DEFAULT 1"))
 
 
 engine = create_async_engine('sqlite+aiosqlite:////db/database_file.db', future=True, echo=False)

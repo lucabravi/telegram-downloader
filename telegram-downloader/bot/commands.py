@@ -56,6 +56,7 @@ async def bot_help(_, msg: Message, chat: Chat):
         /cd | go to root foolder
         /autofolder | put downloads on a subfolder named after the forwarded original group
         /autoname | instead of using original filename try to get the best from filename and caption
+        /multipart | toggle ranged multipart direct downloads
         /ls | show folders and files in current directories
         /pwd | show current directory
         Send an AnimeUnity URL to queue episodes into Anime/Season folders
@@ -123,6 +124,19 @@ async def use_autoname(_, msg: Message, chat: Chat):
     await chat.update_autoname(autoname)
     text = dedent(f"""
         Use autoname {'enabled' if autoname else 'disabled'}
+    """)
+    logging.info(text)
+    await catch_rate_limit(
+        msg.reply,
+        text=text
+    )
+
+
+async def use_multipart(_, msg: Message, chat: Chat):
+    multipart = not bool(getattr(chat, "multipart", True))
+    await chat.update_multipart(multipart)
+    text = dedent(f"""
+        Multipart direct downloads {'enabled' if multipart else 'disabled'}
     """)
     logging.info(text)
     await catch_rate_limit(

@@ -46,6 +46,11 @@ app.add_handler(MessageHandler(
 ))
 
 app.add_handler(MessageHandler(
+    check_admins(commands.use_multipart),
+    command('multipart')
+))
+
+app.add_handler(MessageHandler(
     check_admins(commands.create_folder),
     command('mkdir')
 ))
@@ -92,8 +97,7 @@ logging.info("Bot started!")
 logging.info("Press CTRL+Z to stop...")
 
 loop = asyncio.get_event_loop()
-
-loop.create_task(create_tables())
+loop.run_until_complete(create_tables())
 
 loop.create_task(download.manager.run())
 loop.create_task(download.manager.status_loop())

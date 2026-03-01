@@ -155,6 +155,18 @@ def _probe_byte_range_support(url: str, headers: dict) -> bool:
         return False
 
 
+def _validate_expected_size(file_path: str, expected_size: int) -> tuple[bool, str | None]:
+    if expected_size <= 0:
+        return True, None
+    try:
+        actual_size = os.path.getsize(file_path)
+    except OSError as exc:
+        return False, f"unable to read final file size: {exc}"
+    if actual_size != expected_size:
+        return False, f"size mismatch (expected {expected_size} bytes, got {actual_size} bytes)"
+    return True, None
+
+
 def _download_direct_url_single_stream(
     download: Download,
     file_path: str,
@@ -194,6 +206,10 @@ def _download_direct_url_single_stream(
             download.last_total = received
             download.size = received
             download.last_percent = 100
+        else:
+            ok, error = _validate_expected_size(file_path, total)
+            if not ok:
+                return "error", error
         return "completed", None
     except _DirectDownloadStopped:
         return "stopped", None
@@ -268,6 +284,10 @@ def _download_direct_url_multipart(
                 except OSError:
                     pass
 
+        ok, error = _validate_expected_size(file_path, total)
+        if not ok:
+            return "error", error
+
         finish = time()
         download.last_call = finish
         download.last_update = finish
@@ -309,6 +329,8 @@ def _download_direct_url_sync(download: Download, file_path: str) -> tuple[str, 
             total = int(response.headers.get("Content-Length", 0) or 0)
             accept_ranges = (response.headers.get("Accept-Ranges") or "").lower()
             can_multipart = (
+                download.multipart_enabled
+                and
                 total >= DIRECT_DOWNLOAD_MIN_MULTIPART_SIZE
                 and "bytes" in accept_ranges
                 and _probe_byte_range_support(download.source_url, headers)

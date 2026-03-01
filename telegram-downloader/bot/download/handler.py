@@ -91,7 +91,13 @@ def _season_folder_name(season_number: int | None) -> str:
     return f"Season {season_number:02d}"
 
 
-async def _enqueue_direct_url_download(msg: Message, filepath: str, filename: str, url: str):
+async def _enqueue_direct_url_download(
+    msg: Message,
+    filepath: str,
+    filename: str,
+    url: str,
+    multipart_enabled: bool,
+):
     waiting = None
     await enqueue_download(Download(
         id=randint(1_000_000_000, 9_999_999_999),
@@ -101,6 +107,7 @@ async def _enqueue_direct_url_download(msg: Message, filepath: str, filename: st
         added=time(),
         source='direct_url',
         source_url=url,
+        multipart_enabled=multipart_enabled,
         progress_message_future=waiting
     ))
 
@@ -216,6 +223,7 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
             filepath=filepath,
             filename=filename,
             url=episode.download_url,
+            multipart_enabled=bool(getattr(chat, "multipart", True)),
         )
         queued += 1
         queued_episode_numbers.append(episode.episode_number)
