@@ -28,7 +28,7 @@ last_status_text = {}
 STATUS_INTERVAL = 5
 RUNNING_LOG_INTERVAL = 10
 _last_running_log = 0.0
-DIRECT_DOWNLOAD_CHUNK_SIZE = 1024 * 256
+DIRECT_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 def _get_chat_downloads(chat_id: int) -> dict[int, Download]:
