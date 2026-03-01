@@ -219,38 +219,56 @@ async def status_loop():
 async def run():
     global running
     logging.info('Starting download manager...')
+    active_tasks: set[asyncio.Task] = set()
 
     while True:
-        tasks = []
-        for _ in range(app.max_concurrent_transmissions - running):
+        while len(active_tasks) < app.max_concurrent_transmissions:
             try:
-                download = await download_queue.get()
-                logging.info(f"Dequeued download id={download.id} path={download.filepath} | queue size={download_queue.qsize()}")
-                if download.filename in [f.get_name() for f in tasks]:
-                    text = f'File "{download.filename}" already present in download queue'
-                    logging.info(text)
-                    await catch_rate_limit(
-                        download.progress_message.edit, wait=True, text=dedent(text), parse_mode=ParseMode.MARKDOWN
-                    )
-                    continue
-
-                task = asyncio.create_task(download_file(download), name=download.filepath)
-                tasks.append(task)
-                logging.info(f'Started task for id={download.id} ({download.filepath}) | running before start={running}')
-                running += 1
+                download = download_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-            except Exception as e:
-                logging.error(e)
+            except Exception as exc:
+                logging.error(f'run|get_nowait | {exc}')
                 break
+
+            logging.info(f"Dequeued download id={download.id} path={download.filepath} | queue size={download_queue.qsize()}")
+            if download.filepath in {task.get_name() for task in active_tasks}:
+                text = f'File "{download.filepath}" already in active downloads'
+                logging.info(text)
+                await _enqueue_edit_when_ready(
+                    download,
+                    text=dedent(text),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                continue
+
+            task = asyncio.create_task(download_file(download), name=download.filepath)
+            active_tasks.add(task)
+            logging.info(f'Started task for id={download.id} ({download.filepath}) | running before start={len(active_tasks) - 1}')
 
         global _last_running_log
         now = time()
+        running = len(active_tasks)
         if now - _last_running_log >= RUNNING_LOG_INTERVAL:
             logging.info(f'Max downloads running: {running}')
             _last_running_log = now
-        await asyncio.gather(*tasks)
-        await asyncio.sleep(1)
+
+        if not active_tasks:
+            await asyncio.sleep(0.5)
+            continue
+
+        done, _ = await asyncio.wait(
+            active_tasks,
+            timeout=1.0,
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in done:
+            active_tasks.discard(task)
+            try:
+                task.result()
+            except Exception as exc:
+                logging.exception(f'download task failed ({task.get_name()}): {exc}')
+        running = len(active_tasks)
 
 
 async def enqueue_download(download: Download):
