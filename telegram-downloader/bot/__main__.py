@@ -1,7 +1,8 @@
 import logging
 import asyncio
 
-from pyrogram.filters import command, document, media
+from pyrogram import filters
+from pyrogram.filters import command, document, media, text
 from pyrogram.handlers.callback_query_handler import CallbackQueryHandler
 from pyrogram.handlers.message_handler import MessageHandler
 
@@ -67,7 +68,12 @@ app.add_handler(MessageHandler(
 ))
 # endregion GET MEDIA
 
-from pyrogram import filters
+# region GET URL
+app.add_handler(MessageHandler(
+    check_admins(download.handler.add_animeunity_url),
+    text & filters.regex(download.handler.ANIMEUNITY_URL_FILTER),
+))
+# endregion GET URL
 
 
 def switch_callback(data):

@@ -58,6 +58,7 @@ async def bot_help(_, msg: Message, chat: Chat):
         /autoname | instead of using original filename try to get the best from filename and caption
         /ls | show folders and files in current directories
         /pwd | show current directory
+        Send an AnimeUnity URL to queue episodes into Anime/Season folders
     """)
     logging.info(text)
     await catch_rate_limit(msg.reply, text=text)

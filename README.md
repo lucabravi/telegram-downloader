@@ -52,6 +52,7 @@ volume when using Docker.
 - Downloads are queued and processed up to the configured concurrency.
 - Each download updates a single “origin” message on start/finish.
 - A single status message per chat summarizes all active downloads.
+- AnimeUnity series URLs are supported: send an AnimeUnity `/anime/<id>-<slug>` URL to queue episode downloads into automatic `Anime/Season XX` subfolders.
 
 ## Rate limiting
 
@@ -115,4 +116,3 @@ To stop the service
 ```bash
 docker compose down
 ```
-

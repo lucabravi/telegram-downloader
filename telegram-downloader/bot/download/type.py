@@ -9,6 +9,8 @@ class Download:
     filepath: str
     from_message: Message
     added: float
+    source: str = "telegram"
+    source_url: str | None = None
     progress_message: Message | None = None
     progress_message_future: asyncio.Future | None = None
     started: float = 0

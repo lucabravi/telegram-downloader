@@ -1,8 +1,10 @@
 import logging
+import os
 import os.path
 from ..util import dedent
 from time import ctime, time
 from typing import List
+import requests
 
 from pyrogram.enums import ParseMode
 from pyrogram.types import (CallbackQuery, InlineKeyboardButton,
@@ -26,6 +28,7 @@ last_status_text = {}
 STATUS_INTERVAL = 5
 RUNNING_LOG_INTERVAL = 10
 _last_running_log = 0.0
+DIRECT_DOWNLOAD_CHUNK_SIZE = 1024 * 256
 
 
 def _get_chat_downloads(chat_id: int) -> dict[int, Download]:
@@ -37,12 +40,15 @@ def _format_status(downloads: list[Download]) -> str:
     for download in downloads:
         total = download.last_total or download.size
         received = download.last_received
-        if total <= 0:
+        if total <= 0 and received <= 0:
             continue
         lines.append(download.filepath)
-        lines.append(
-            f"Progress: {human_readable(received)} of {human_readable(total)} ({download.last_percent:.2f}%)"
-        )
+        if total > 0:
+            lines.append(
+                f"Progress: {human_readable(received)} of {human_readable(total)} ({download.last_percent:.2f}%)"
+            )
+        else:
+            lines.append(f"Progress: {human_readable(received)} (unknown total size)")
         lines.append(
             f"Download speed: {human_readable(download.last_speed)}/s | Average: {human_readable(download.last_avg_speed)}/s"
         )
@@ -86,6 +92,88 @@ async def _enqueue_edit_when_ready(download: Download, **kwargs):
             logging.error(f'progress_message_wait | {exc}')
 
     asyncio.create_task(_wait_and_edit())
+
+
+async def _clear_chat_download_state_if_idle(chat_id: int):
+    downloads = _get_chat_downloads(chat_id)
+    if downloads:
+        return
+    active_downloads.pop(chat_id, None)
+    old = status_messages.pop(chat_id, None)
+    last_status_text.pop(chat_id, None)
+    if old:
+        await catch_rate_limit(old.delete, wait=False)
+        await asyncio.sleep(2)
+    await enqueue_message(app.send_message, chat_id=chat_id, text="Downloads completed.")
+
+
+async def _finalize_download(download: Download, text: str):
+    await _enqueue_edit_when_ready(
+        download,
+        text=dedent(text),
+        parse_mode=ParseMode.MARKDOWN
+    )
+    chat_id = download.from_message.chat.id
+    downloads = _get_chat_downloads(chat_id)
+    downloads.pop(download.id, None)
+    await _clear_chat_download_state_if_idle(chat_id)
+
+
+def _download_direct_url_sync(download: Download, file_path: str) -> tuple[str, str | None]:
+    if not download.source_url:
+        return "error", "missing source_url for direct download"
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/123.0.0.0 Safari/537.36"
+        ),
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+    }
+
+    try:
+        with requests.get(download.source_url, headers=headers, stream=True, timeout=30) as response:
+            response.raise_for_status()
+            total = int(response.headers.get("Content-Length", 0) or 0)
+            if total > 0:
+                download.size = total
+                download.last_total = total
+
+            received = 0
+            with open(file_path, "wb") as output:
+                for chunk in response.iter_content(chunk_size=DIRECT_DOWNLOAD_CHUNK_SIZE):
+                    if not chunk:
+                        continue
+                    if download.id in stop:
+                        return "stopped", None
+
+                    output.write(chunk)
+                    now = time()
+                    received += len(chunk)
+                    elapsed = max(now - download.started, 1e-6)
+                    delta = max(now - download.last_call, 1e-6) if download.last_call else elapsed
+
+                    download.last_received = received
+                    download.last_total = total or download.last_total
+                    download.last_speed = len(chunk) / delta
+                    download.last_avg_speed = received / elapsed
+                    download.last_percent = (received / total * 100) if total > 0 else 0
+                    download.last_call = now
+                    download.last_update = now
+
+            finish = time()
+            download.last_call = finish
+            download.last_update = finish
+            download.last_received = received
+            if total <= 0:
+                download.last_total = received
+                download.size = received
+                download.last_percent = 100
+            return "completed", None
+    except Exception as exc:
+        return "error", str(exc)
 
 
 async def status_loop():
@@ -200,6 +288,53 @@ async def download_file(download: Download):
         ]])
     )
     download.started = time()
+    if download.source == 'direct_url':
+        status, error = await asyncio.to_thread(_download_direct_url_sync, download, file_path)
+        running -= 1
+
+        if status == "completed":
+            elapsed = max(download.last_call - download.started, 1e-6)
+            speed = human_readable(download.last_received / elapsed)
+            text = f"""
+                File downloaded:
+                __{download.filepath}__ 
+
+                Started at __{ctime(download.started)}__ 
+                Finished at __{ctime(download.last_call)}__
+                Average download speed: __{speed}/s__
+            """
+            logging.info(text)
+            await _finalize_download(download, text)
+            logging.info(f"Completed direct download id={download.id} ({download.filepath}) | elapsed={elapsed:.2f}s")
+            return
+
+        if status == "stopped":
+            if download.id in stop:
+                stop.remove(download.id)
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            text = f"Download of __{download.filepath}__ stopped!"
+            logging.info(text)
+            await _finalize_download(download, text)
+            logging.info(f"Stopped direct download id={download.id} ({download.filepath})")
+            return
+
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+        text = f"""
+            Download failed:
+            __{download.filepath}__
+
+            Error: {error or 'unknown error'}
+        """
+        logging.error(dedent(text))
+        await _finalize_download(download, text)
+        return
+
     # result = await app.download_media(
     result = app.download_media(
         message=download.from_message,
@@ -214,7 +349,8 @@ async def download_file(download: Download):
 async def progress(received: int, total: int, download: Download):
     global running
     if received == total:
-        speed = human_readable(download.size / (download.last_call - download.started))
+        elapsed = max(download.last_call - download.started, 1e-6)
+        speed = human_readable(download.size / elapsed)
         text = f"""
                     File downloaded:
                     __{download.filepath}__ 
@@ -225,23 +361,8 @@ async def progress(received: int, total: int, download: Download):
                 """
         logging.info(text)
         running -= 1
-        await _enqueue_edit_when_ready(
-            download,
-            text=dedent(text),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        chat_id = download.from_message.chat.id
-        downloads = _get_chat_downloads(chat_id)
-        downloads.pop(download.id, None)
-        if not downloads:
-            active_downloads.pop(chat_id, None)
-            old = status_messages.pop(chat_id, None)
-            last_status_text.pop(chat_id, None)
-            if old:
-                await catch_rate_limit(old.delete, wait=False)
-                await asyncio.sleep(2)
-            await enqueue_message(app.send_message, chat_id=chat_id, text="Downloads completed.")
-        logging.info(f"Completed download id={download.id} ({download.filepath}) | elapsed={download.last_call - download.started:.2f}s")
+        await _finalize_download(download, text)
+        logging.info(f"Completed download id={download.id} ({download.filepath}) | elapsed={elapsed:.2f}s")
         return
 
     # This function is called every time that 1MB is downloaded
@@ -250,22 +371,7 @@ async def progress(received: int, total: int, download: Download):
         running -= 1
         text = f"Download of __{download.filepath}__ stopped!"
         logging.info(text)
-        await _enqueue_edit_when_ready(
-            download,
-            text=text,
-            parse_mode=ParseMode.MARKDOWN
-        )
-        chat_id = download.from_message.chat.id
-        downloads = _get_chat_downloads(chat_id)
-        downloads.pop(download.id, None)
-        if not downloads:
-            active_downloads.pop(chat_id, None)
-            old = status_messages.pop(chat_id, None)
-            last_status_text.pop(chat_id, None)
-            if old:
-                await catch_rate_limit(old.delete, wait=False)
-                await asyncio.sleep(2)
-            await enqueue_message(app.send_message, chat_id=chat_id, text="Downloads completed.")
+        await _finalize_download(download, text)
         await app.stop_transmission()
         logging.info(f"Stopped download id={download.id} ({download.filepath})")
         return
@@ -285,6 +391,7 @@ async def progress(received: int, total: int, download: Download):
     avg_speed = received / (now - download.started)
     download.last_received = received
     download.last_total = total
+    download.size = total
     download.last_speed = speed
     download.last_avg_speed = avg_speed
     download.last_percent = percent

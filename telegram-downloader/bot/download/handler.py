@@ -1,5 +1,7 @@
+import asyncio
 import re
 import logging
+import os
 import os.path
 from os.path import isfile
 from random import choices, randint
@@ -15,47 +17,48 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from ..db import Chat
 from .manager import enqueue_download
 from .type import Download
-from ..rate_limiter import catch_rate_limit, enqueue_message
+from ..rate_limiter import enqueue_message
 from ..manage_path import VirtualFileSystem
+from .animeunity import (
+    ANIMEUNITY_URL_PATTERN,
+    AnimeUnityError,
+    extract_animeunity_url,
+    resolve_animeunity_downloads,
+)
 
 
-async def add_file(_, msg: Message, chat: Chat):
-    vfs = VirtualFileSystem()
-    ok, new_path = vfs.abs_cd(chat.current_dir)
+ANIMEUNITY_URL_FILTER = ANIMEUNITY_URL_PATTERN
+
+
+async def _resolve_base_path(
+    vfs: VirtualFileSystem,
+    msg: Message,
+    chat: Chat,
+    enforce_root_restriction: bool = True,
+) -> str | None:
+    ok, _ = vfs.abs_cd(chat.current_dir)
     if not ok:
         text = ("There's a problem with saved current folder, change folder with /cd __foldername__ or create"
                 " a new folder with /mkdir __foldername__.")
         await enqueue_message(msg.reply, text=text)
-        return
+        return None
 
-    if chat.current_dir in ('/', '.', '') and not vfs.allow_root_folder and not chat.autofolder:
-        folders, files = vfs.ls()
+    if enforce_root_restriction and chat.current_dir in ('/', '.', '') and not vfs.allow_root_folder and not chat.autofolder:
+        folders, _ = vfs.ls()
         if len(folders) == 0:
             text = "You can't download in this folder, create a subfolder."
-            await enqueue_message(msg.reply,
-                                  text=text)
-            return
-        # else:
-        #     text = dedent(f"""
-        #     Root folder selected, please:
-        #     - go to a subfolder ( /cd __folder__ )
-        #     available folders: ["{'",'.join(folders)}"]
-        #     - enable autofolder ( /autofolder )
-        #     - create a new folder ( /mkdir __folder__)
-        #     """)
-        #     await catch_rate_limit(msg.reply,
-        #                            text=text)
-        #     return
-        else:
-            await enqueue_message(msg.reply,
-                                  text="Root folder selected, please select one of the subfolders or create a new one with /mkdir __folder__.",
-                                  quote=True,
-                                  parse_mode=ParseMode.MARKDOWN,
-                                  reply_markup=InlineKeyboardMarkup([[
-                                      InlineKeyboardButton(f"{f}", callback_data=f"cd {f}") for f in folders
-                                  ]])
-                                  )
-            return
+            await enqueue_message(msg.reply, text=text)
+            return None
+        await enqueue_message(
+            msg.reply,
+            text="Root folder selected, please select one of the subfolders or create a new one with /mkdir __folder__.",
+            quote=True,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(f"{f}", callback_data=f"cd {f}") for f in folders
+            ]])
+        )
+        return None
 
     if chat.autofolder and msg.forward_from_chat and msg.forward_from_chat.id < 0 and msg.forward_from_chat.title.strip() != '':
         ok, info = vfs.mkdir(msg.forward_from_chat.title)
@@ -65,10 +68,53 @@ async def add_file(_, msg: Message, chat: Chat):
                 {vfs.get_current_dir_info()}
             """)
             await enqueue_message(msg.reply, text=text)
-            return
-        path = os.path.join(vfs.current_rel_path, info)
-    else:
-        path = vfs.current_rel_path
+            return None
+        return os.path.normpath(os.path.join(vfs.current_rel_path, info))
+    return os.path.normpath(vfs.current_rel_path)
+
+
+def _build_unique_filename(filename: str, seen: set[str]) -> str:
+    base, ext = os.path.splitext(filename)
+    candidate = filename
+    idx = 2
+    while candidate.casefold() in seen:
+        candidate = f"{base}_{idx}{ext}"
+        idx += 1
+    seen.add(candidate.casefold())
+    return candidate
+
+
+def _season_folder_name(season_number: int | None) -> str:
+    if season_number is None or season_number <= 0:
+        return "Season 01"
+    return f"Season {season_number:02d}"
+
+
+async def _enqueue_direct_url_download(msg: Message, filepath: str, filename: str, url: str):
+    text = f"File __{filepath}__ added to list."
+    waiting = await enqueue_message(
+        msg.reply,
+        text=text,
+        quote=True,
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    await enqueue_download(Download(
+        id=randint(1_000_000_000, 9_999_999_999),
+        filename=filename,
+        filepath=filepath,
+        from_message=msg,
+        added=time(),
+        source='direct_url',
+        source_url=url,
+        progress_message_future=waiting
+    ))
+
+
+async def add_file(_, msg: Message, chat: Chat):
+    vfs = VirtualFileSystem()
+    path = await _resolve_base_path(vfs, msg, chat)
+    if path is None:
+        return
 
     try:
         media = getattr(msg, msg.media.value)
@@ -103,6 +149,79 @@ async def add_file(_, msg: Message, chat: Chat):
         added=time(),
         progress_message_future=waiting
     ))
+
+
+async def add_animeunity_url(_, msg: Message, chat: Chat):
+    anime_url = extract_animeunity_url(msg.text or "")
+    if not anime_url:
+        return
+
+    vfs = VirtualFileSystem()
+    path = await _resolve_base_path(vfs, msg, chat, enforce_root_restriction=False)
+    if path is None:
+        return
+
+    await enqueue_message(
+        msg.reply,
+        text=f"Resolving AnimeUnity URL:\n{anime_url}",
+        quote=True
+    )
+    try:
+        anime_name, episodes = await asyncio.to_thread(resolve_animeunity_downloads, anime_url)
+    except AnimeUnityError as exc:
+        await enqueue_message(msg.reply, text=f"AnimeUnity error: {exc}", quote=True)
+        return
+    except Exception as exc:
+        logging.exception(f'add_animeunity_url | {exc}')
+        await enqueue_message(msg.reply, text=f"Unexpected error: {exc}", quote=True)
+        return
+
+    folder_name = vfs.cleanup_path_name(anime_name) or "animeunity"
+    ok, info = vfs.mkdir(folder_name)
+    if not ok:
+        text = dedent(f"""
+            {info}
+            {vfs.get_current_dir_info()}
+        """)
+        await enqueue_message(msg.reply, text=text, quote=True)
+        return
+
+    series_path = os.path.normpath(os.path.join(path, info))
+    os.makedirs(vfs.relative_to_absolute_path(series_path), exist_ok=True)
+    seen_names_by_season: dict[str, set[str]] = {}
+    created_seasons: set[str] = set()
+    queued = 0
+    skipped_existing = 0
+    for episode in episodes:
+        season_folder = _season_folder_name(episode.season_number)
+        season_path = os.path.normpath(os.path.join(series_path, season_folder))
+        if season_path not in created_seasons:
+            os.makedirs(vfs.relative_to_absolute_path(season_path), exist_ok=True)
+            created_seasons.add(season_path)
+
+        filename = vfs.cleanup_path_name(episode.filename) or f"episode-{episode.episode_number}.mp4"
+        season_seen_names = seen_names_by_season.setdefault(season_path, set())
+        filename = _build_unique_filename(filename, season_seen_names)
+        filepath = os.path.normpath(os.path.join(season_path, filename))
+        if isfile(vfs.relative_to_absolute_path(filepath)):
+            skipped_existing += 1
+            continue
+        await _enqueue_direct_url_download(
+            msg=msg,
+            filepath=filepath,
+            filename=filename,
+            url=episode.download_url,
+        )
+        queued += 1
+
+    summary = dedent(f"""
+        AnimeUnity: __{anime_name}__
+        Destination: __{series_path}__
+        Seasons: __{', '.join(sorted({os.path.basename(p) for p in created_seasons})) or 'Season 01'}__
+        Episodes queued: __{queued}__
+        Existing files skipped: __{skipped_existing}__
+    """)
+    await enqueue_message(msg.reply, text=summary, quote=True, parse_mode=ParseMode.MARKDOWN)
 
 
 def find_correct_filename(original_filename: str, caption: str, chat_title: str) -> str:
