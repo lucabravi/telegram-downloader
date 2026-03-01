@@ -1,9 +1,13 @@
 import logging
+import math
 import os
 import os.path
+import shutil
 from ..util import dedent
 from time import ctime, time
 from typing import List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 import requests
 
 from pyrogram.enums import ParseMode
@@ -29,6 +33,9 @@ STATUS_INTERVAL = 5
 RUNNING_LOG_INTERVAL = 10
 _last_running_log = 0.0
 DIRECT_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+DIRECT_DOWNLOAD_MIN_MULTIPART_SIZE = 32 * 1024 * 1024
+DIRECT_DOWNLOAD_TARGET_PART_SIZE = 64 * 1024 * 1024
+DIRECT_DOWNLOAD_MAX_PARTS = 4
 
 
 def _get_chat_downloads(chat_id: int) -> dict[int, Download]:
@@ -119,6 +126,169 @@ async def _finalize_download(download: Download, text: str):
     await _clear_chat_download_state_if_idle(chat_id)
 
 
+class _DirectDownloadStopped(Exception):
+    pass
+
+
+def _update_direct_download_stats(download: Download, total: int, received: int, delta_bytes: int):
+    now = time()
+    elapsed = max(now - download.started, 1e-6)
+    delta_time = max(now - download.last_call, 1e-6) if download.last_call else elapsed
+
+    download.last_received = received
+    download.last_total = total
+    download.size = total
+    download.last_speed = delta_bytes / delta_time
+    download.last_avg_speed = received / elapsed
+    download.last_percent = (received / total * 100) if total > 0 else 0
+    download.last_call = now
+    download.last_update = now
+
+
+def _probe_byte_range_support(url: str, headers: dict) -> bool:
+    probe_headers = dict(headers)
+    probe_headers["Range"] = "bytes=0-1"
+    try:
+        with requests.get(url, headers=probe_headers, stream=True, timeout=20) as probe:
+            return probe.status_code == 206 and "Content-Range" in probe.headers
+    except Exception:
+        return False
+
+
+def _download_direct_url_single_stream(
+    download: Download,
+    file_path: str,
+    headers: dict,
+    response: requests.Response | None = None,
+    total_hint: int = 0,
+) -> tuple[str, str | None]:
+    request_cm = requests.get(download.source_url, headers=headers, stream=True, timeout=30) if response is None else None
+
+    try:
+        if response is None:
+            response = request_cm.__enter__()
+            response.raise_for_status()
+
+        total = int(response.headers.get("Content-Length", 0) or total_hint or 0)
+        if total > 0:
+            download.size = total
+            download.last_total = total
+
+        received = 0
+        with open(file_path, "wb") as output:
+            for chunk in response.iter_content(chunk_size=DIRECT_DOWNLOAD_CHUNK_SIZE):
+                if not chunk:
+                    continue
+                if download.id in stop:
+                    raise _DirectDownloadStopped()
+
+                output.write(chunk)
+                received += len(chunk)
+                _update_direct_download_stats(download, total, received, len(chunk))
+
+        finish = time()
+        download.last_call = finish
+        download.last_update = finish
+        download.last_received = received
+        if total <= 0:
+            download.last_total = received
+            download.size = received
+            download.last_percent = 100
+        return "completed", None
+    except _DirectDownloadStopped:
+        return "stopped", None
+    except Exception as exc:
+        return "error", str(exc)
+    finally:
+        if request_cm is not None:
+            request_cm.__exit__(None, None, None)
+
+
+def _download_direct_url_multipart(
+    download: Download,
+    file_path: str,
+    headers: dict,
+    total: int,
+) -> tuple[str, str | None]:
+    total_parts = min(
+        DIRECT_DOWNLOAD_MAX_PARTS,
+        max(2, math.ceil(total / DIRECT_DOWNLOAD_TARGET_PART_SIZE)),
+    )
+    part_size = math.ceil(total / total_parts)
+    ranges: list[tuple[int, int, int]] = []
+    start = 0
+    part_idx = 0
+    while start < total:
+        end = min(start + part_size - 1, total - 1)
+        ranges.append((part_idx, start, end))
+        start = end + 1
+        part_idx += 1
+
+    bytes_lock = Lock()
+    shared_received = {"value": 0}
+    part_files = [f"{file_path}.part{idx}" for idx, _, _ in ranges]
+
+    def worker(idx: int, start_byte: int, end_byte: int):
+        part_path = f"{file_path}.part{idx}"
+        range_headers = dict(headers)
+        range_headers["Range"] = f"bytes={start_byte}-{end_byte}"
+        with requests.get(download.source_url, headers=range_headers, stream=True, timeout=30) as response:
+            response.raise_for_status()
+            if response.status_code != 206:
+                raise RuntimeError(f"Range not honored for part {idx}, status={response.status_code}")
+
+            with open(part_path, "wb") as output:
+                for chunk in response.iter_content(chunk_size=DIRECT_DOWNLOAD_CHUNK_SIZE):
+                    if not chunk:
+                        continue
+                    if download.id in stop:
+                        raise _DirectDownloadStopped()
+                    output.write(chunk)
+                    with bytes_lock:
+                        shared_received["value"] += len(chunk)
+                        _update_direct_download_stats(
+                            download=download,
+                            total=total,
+                            received=shared_received["value"],
+                            delta_bytes=len(chunk),
+                        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=len(ranges)) as executor:
+            futures = [executor.submit(worker, idx, start_byte, end_byte) for idx, start_byte, end_byte in ranges]
+            for future in as_completed(futures):
+                future.result()
+
+        with open(file_path, "wb") as output:
+            for part_path in part_files:
+                with open(part_path, "rb") as part:
+                    shutil.copyfileobj(part, output, length=DIRECT_DOWNLOAD_CHUNK_SIZE)
+                try:
+                    os.remove(part_path)
+                except OSError:
+                    pass
+
+        finish = time()
+        download.last_call = finish
+        download.last_update = finish
+        download.last_received = total
+        download.last_total = total
+        download.size = total
+        download.last_percent = 100
+        return "completed", None
+    except _DirectDownloadStopped:
+        return "stopped", None
+    except Exception as exc:
+        return "error", str(exc)
+    finally:
+        for part_path in part_files:
+            if os.path.exists(part_path):
+                try:
+                    os.remove(part_path)
+                except OSError:
+                    pass
+
+
 def _download_direct_url_sync(download: Download, file_path: str) -> tuple[str, str | None]:
     if not download.source_url:
         return "error", "missing source_url for direct download"
@@ -137,41 +307,41 @@ def _download_direct_url_sync(download: Download, file_path: str) -> tuple[str, 
         with requests.get(download.source_url, headers=headers, stream=True, timeout=30) as response:
             response.raise_for_status()
             total = int(response.headers.get("Content-Length", 0) or 0)
-            if total > 0:
-                download.size = total
-                download.last_total = total
+            accept_ranges = (response.headers.get("Accept-Ranges") or "").lower()
+            can_multipart = (
+                total >= DIRECT_DOWNLOAD_MIN_MULTIPART_SIZE
+                and "bytes" in accept_ranges
+                and _probe_byte_range_support(download.source_url, headers)
+            )
 
-            received = 0
-            with open(file_path, "wb") as output:
-                for chunk in response.iter_content(chunk_size=DIRECT_DOWNLOAD_CHUNK_SIZE):
-                    if not chunk:
-                        continue
-                    if download.id in stop:
-                        return "stopped", None
+            if can_multipart:
+                logging.info(
+                    f"Using multipart direct download id={download.id} parts<={DIRECT_DOWNLOAD_MAX_PARTS} total={total}"
+                )
+                response.close()
+                status, error = _download_direct_url_multipart(
+                    download=download,
+                    file_path=file_path,
+                    headers=headers,
+                    total=total,
+                )
+                if status != "error":
+                    return status, error
+                logging.warning(f"Multipart failed for {download.filepath}, fallback to single stream: {error}")
+                return _download_direct_url_single_stream(
+                    download=download,
+                    file_path=file_path,
+                    headers=headers,
+                    total_hint=total,
+                )
 
-                    output.write(chunk)
-                    now = time()
-                    received += len(chunk)
-                    elapsed = max(now - download.started, 1e-6)
-                    delta = max(now - download.last_call, 1e-6) if download.last_call else elapsed
-
-                    download.last_received = received
-                    download.last_total = total or download.last_total
-                    download.last_speed = len(chunk) / delta
-                    download.last_avg_speed = received / elapsed
-                    download.last_percent = (received / total * 100) if total > 0 else 0
-                    download.last_call = now
-                    download.last_update = now
-
-            finish = time()
-            download.last_call = finish
-            download.last_update = finish
-            download.last_received = received
-            if total <= 0:
-                download.last_total = received
-                download.size = received
-                download.last_percent = 100
-            return "completed", None
+            return _download_direct_url_single_stream(
+                download=download,
+                file_path=file_path,
+                headers=headers,
+                response=response,
+                total_hint=total,
+            )
     except Exception as exc:
         return "error", str(exc)
 

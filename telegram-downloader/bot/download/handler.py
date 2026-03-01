@@ -92,13 +92,7 @@ def _season_folder_name(season_number: int | None) -> str:
 
 
 async def _enqueue_direct_url_download(msg: Message, filepath: str, filename: str, url: str):
-    text = f"File __{filepath}__ added to list."
-    waiting = await enqueue_message(
-        msg.reply,
-        text=text,
-        quote=True,
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    waiting = None
     await enqueue_download(Download(
         id=randint(1_000_000_000, 9_999_999_999),
         filename=filename,
@@ -109,6 +103,19 @@ async def _enqueue_direct_url_download(msg: Message, filepath: str, filename: st
         source_url=url,
         progress_message_future=waiting
     ))
+
+
+def _episode_number_sort_key(value: str) -> tuple[int, float]:
+    try:
+        return (0, float(value))
+    except Exception:
+        return (1, 0.0)
+
+
+def _format_episode_number(value: float) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value}".rstrip('0').rstrip('.')
 
 
 async def add_file(_, msg: Message, chat: Chat):
@@ -162,11 +169,6 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
     if path is None:
         return
 
-    await enqueue_message(
-        msg.reply,
-        text=f"Resolving AnimeUnity URL:\n{anime_url}",
-        quote=True
-    )
     try:
         anime_name, episodes = await asyncio.to_thread(resolve_animeunity_downloads, anime_url)
     except AnimeUnityError as exc:
@@ -194,6 +196,7 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
     created_seasons: set[str] = set()
     queued = 0
     skipped_existing = 0
+    queued_episode_numbers: list[str] = []
     for episode in episodes:
         season_folder = _season_folder_name(episode.season_number or season_from_title)
         season_path = os.path.normpath(os.path.join(series_path, season_folder))
@@ -215,13 +218,30 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
             url=episode.download_url,
         )
         queued += 1
+        queued_episode_numbers.append(episode.episode_number)
+
+    if queued_episode_numbers:
+        numeric_eps = []
+        for ep_num in queued_episode_numbers:
+            try:
+                numeric_eps.append(float(ep_num))
+            except Exception:
+                continue
+        if numeric_eps:
+            episode_range = f"{_format_episode_number(min(numeric_eps))} - {_format_episode_number(max(numeric_eps))}"
+        else:
+            ordered = sorted(queued_episode_numbers, key=_episode_number_sort_key)
+            episode_range = f"{ordered[0]} - {ordered[-1]}"
+    else:
+        episode_range = "-"
 
     summary = dedent(f"""
-        AnimeUnity: __{series_name or anime_name}__
-        Destination: __{series_path}__
-        Seasons: __{', '.join(sorted({os.path.basename(p) for p in created_seasons})) or 'Season 01'}__
-        Episodes queued: __{queued}__
-        Existing files skipped: __{skipped_existing}__
+        Episodi di __{series_name or anime_name}__ aggiunti in coda.
+        Range episodi: __{episode_range}__
+        Stagioni: __{', '.join(sorted({os.path.basename(p) for p in created_seasons})) or 'Season 01'}__
+        Destinazione: __{series_path}__
+        Episodi in coda: __{queued}__
+        File gia presenti saltati: __{skipped_existing}__
     """)
     await enqueue_message(msg.reply, text=summary, quote=True, parse_mode=ParseMode.MARKDOWN)
 
