@@ -349,8 +349,15 @@ async def download_file(download: Download):
 async def progress(received: int, total: int, download: Download):
     global running
     if received == total:
+        now = time()
+        if download.last_call == 0:
+            download.last_call = now
+        if download.size == 0:
+            download.size = total
+            download.last_total = total
         elapsed = max(download.last_call - download.started, 1e-6)
-        speed = human_readable(download.size / elapsed)
+        final_size = download.size or download.last_total or total
+        speed = human_readable(final_size / elapsed)
         text = f"""
                     File downloaded:
                     __{download.filepath}__ 
@@ -386,9 +393,14 @@ async def progress(received: int, total: int, download: Download):
         return
     percent = received / total * 100
     if download.last_call == 0:
-        download.last_call = now - 1
-    speed = (1024 ** 2) / (now - download.last_call)
-    avg_speed = received / (now - download.started)
+        delta_time = max(now - download.started, 1e-6)
+        delta_bytes = received
+    else:
+        delta_time = max(now - download.last_call, 1e-6)
+        delta_bytes = max(received - download.last_received, 0)
+
+    speed = delta_bytes / delta_time
+    avg_speed = received / max(now - download.started, 1e-6)
     download.last_received = received
     download.last_total = total
     download.size = total
