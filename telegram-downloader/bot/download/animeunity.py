@@ -198,10 +198,10 @@ def _derive_filename(download_url: str, fallback_name: str, episode_number: str)
     query = parse_qs(parsed.query or "")
     filename = query.get("filename", [None])[0]
     if filename:
-        return _sanitize_filename(unquote(filename))
+        return _add_animeunity_suffix(_sanitize_filename(unquote(filename)))
     if fallback_name and "." in fallback_name:
-        return _sanitize_filename(fallback_name)
-    return _sanitize_filename(f"episode-{episode_number}.mp4")
+        return _add_animeunity_suffix(_sanitize_filename(fallback_name))
+    return _add_animeunity_suffix(_sanitize_filename(f"episode-{episode_number}.mp4"))
 
 
 def _parse_anime_url(url: str) -> tuple[str, str, str]:
@@ -290,3 +290,16 @@ def _sanitize_filename(name: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*]', '', name or '')
     cleaned = re.sub(r' +', ' ', cleaned).strip()
     return cleaned or "episode.mp4"
+
+
+def _add_animeunity_suffix(filename: str) -> str:
+    tag = "[AnimeUnity]"
+    if tag in filename:
+        return filename
+    if "." not in filename:
+        return f"{filename} {tag}"
+
+    base, extension = filename.rsplit(".", 1)
+    if not base:
+        return filename
+    return f"{base} {tag}.{extension}"
