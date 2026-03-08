@@ -12,3 +12,5 @@ docker-compose.yml
 docker-compose.local.yml
 bot.session
 bot.session-journal
+.DS_Store
+**/.DS_Store

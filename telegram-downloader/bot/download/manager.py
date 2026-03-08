@@ -27,6 +27,7 @@ stop: List[int] = []
 
 download_queue = asyncio.Queue()
 active_downloads: dict[int, dict[int, Download]] = {}
+chat_download_stats: dict[int, dict[str, int]] = {}
 status_messages = {}
 last_status_text = {}
 STATUS_INTERVAL = 5
@@ -42,20 +43,22 @@ def _get_chat_downloads(chat_id: int) -> dict[int, Download]:
     return active_downloads.setdefault(chat_id, {})
 
 
+def _get_chat_stats(chat_id: int) -> dict[str, int]:
+    return chat_download_stats.setdefault(chat_id, {"completed": 0, "failed": 0, "stopped": 0})
+
+
 def _format_status(downloads: list[Download]) -> str:
     lines = ["Downloading:"]
     for download in downloads:
         total = download.last_total or download.size
         received = download.last_received
-        if total <= 0 and received <= 0:
-            continue
         lines.append(download.filepath)
         if total > 0:
             lines.append(
                 f"Progress: {human_readable(received)} of {human_readable(total)} ({download.last_percent:.2f}%)"
             )
         else:
-            lines.append(f"Progress: {human_readable(received)} (unknown total size)")
+            lines.append(f"Progress: {human_readable(received)} (starting or unknown total size)")
         lines.append(
             f"Download speed: {human_readable(download.last_speed)}/s | Average: {human_readable(download.last_avg_speed)}/s"
         )
@@ -102,25 +105,35 @@ async def _enqueue_edit_when_ready(download: Download, **kwargs):
 
 
 async def _clear_chat_download_state_if_idle(chat_id: int):
-    downloads = _get_chat_downloads(chat_id)
+    downloads = active_downloads.get(chat_id)
+    if downloads is None:
+        return
     if downloads:
         return
     active_downloads.pop(chat_id, None)
+    stats = chat_download_stats.pop(chat_id, {"completed": 0, "failed": 0, "stopped": 0})
     old = status_messages.pop(chat_id, None)
     last_status_text.pop(chat_id, None)
     if old:
         await catch_rate_limit(old.delete, wait=False)
         await asyncio.sleep(2)
-    await enqueue_message(app.send_message, chat_id=chat_id, text="Downloads completed.")
+    summary = (
+        f"Downloads completed.\n"
+        f"Completed: {stats['completed']} | Failed: {stats['failed']} | Stopped: {stats['stopped']}"
+    )
+    await enqueue_message(app.send_message, chat_id=chat_id, text=summary)
 
 
-async def _finalize_download(download: Download, text: str):
+async def _finalize_download(download: Download, text: str, outcome: str = "completed"):
     await _enqueue_edit_when_ready(
         download,
         text=dedent(text),
         parse_mode=ParseMode.MARKDOWN
     )
     chat_id = download.from_message.chat.id
+    stats = _get_chat_stats(chat_id)
+    if outcome in stats:
+        stats[outcome] += 1
     downloads = _get_chat_downloads(chat_id)
     downloads.pop(download.id, None)
     await _clear_chat_download_state_if_idle(chat_id)
@@ -514,7 +527,7 @@ async def download_file(download: Download):
                 Average download speed: __{speed}/s__
             """
             logging.info(text)
-            await _finalize_download(download, text)
+            await _finalize_download(download, text, outcome="completed")
             logging.info(f"Completed direct download id={download.id} ({download.filepath}) | elapsed={elapsed:.2f}s")
             return
 
@@ -527,7 +540,7 @@ async def download_file(download: Download):
                 pass
             text = f"Download of __{download.filepath}__ stopped!"
             logging.info(text)
-            await _finalize_download(download, text)
+            await _finalize_download(download, text, outcome="stopped")
             logging.info(f"Stopped direct download id={download.id} ({download.filepath})")
             return
 
@@ -542,7 +555,7 @@ async def download_file(download: Download):
             Error: {error or 'unknown error'}
         """
         logging.error(dedent(text))
-        await _finalize_download(download, text)
+        await _finalize_download(download, text, outcome="failed")
         return
 
     # result = await app.download_media(
@@ -578,7 +591,7 @@ async def progress(received: int, total: int, download: Download):
                 """
         logging.info(text)
         running -= 1
-        await _finalize_download(download, text)
+        await _finalize_download(download, text, outcome="completed")
         logging.info(f"Completed download id={download.id} ({download.filepath}) | elapsed={elapsed:.2f}s")
         return
 
@@ -588,7 +601,7 @@ async def progress(received: int, total: int, download: Download):
         running -= 1
         text = f"Download of __{download.filepath}__ stopped!"
         logging.info(text)
-        await _finalize_download(download, text)
+        await _finalize_download(download, text, outcome="stopped")
         await app.stop_transmission()
         logging.info(f"Stopped download id={download.id} ({download.filepath})")
         return
