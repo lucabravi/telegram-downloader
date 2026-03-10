@@ -125,6 +125,9 @@ async def _clear_chat_download_state_if_idle(chat_id: int):
 
 
 async def _finalize_download(download: Download, text: str, outcome: str = "completed"):
+    if download.finalized:
+        return
+    download.finalized = True
     await _enqueue_edit_when_ready(
         download,
         text=dedent(text),
@@ -427,7 +430,10 @@ async def run():
     active_tasks: set[asyncio.Task] = set()
 
     while True:
-        while len(active_tasks) < app.max_concurrent_transmissions:
+        deferred_due_to_active = False
+        queue_scan_limit = download_queue.qsize()
+        scanned = 0
+        while len(active_tasks) < app.max_concurrent_transmissions and scanned < queue_scan_limit:
             try:
                 download = download_queue.get_nowait()
             except asyncio.QueueEmpty:
@@ -436,14 +442,14 @@ async def run():
                 logging.error(f'run|get_nowait | {exc}')
                 break
 
+            scanned += 1
             logging.info(f"Dequeued download id={download.id} path={download.filepath} | queue size={download_queue.qsize()}")
             if download.filepath in {task.get_name() for task in active_tasks}:
-                text = f'File "{download.filepath}" already in active downloads'
-                logging.info(text)
-                await _enqueue_edit_when_ready(
-                    download,
-                    text=dedent(text),
-                    parse_mode=ParseMode.MARKDOWN
+                # Keep the job in queue; do not drop it if another task is writing the same path.
+                await download_queue.put(download)
+                deferred_due_to_active = True
+                logging.info(
+                    f'Deferred download id={download.id} path={download.filepath} because same path is currently active'
                 )
                 continue
 
@@ -459,6 +465,9 @@ async def run():
             _last_running_log = now
 
         if not active_tasks:
+            if deferred_due_to_active:
+                await asyncio.sleep(0.2)
+                continue
             await asyncio.sleep(0.5)
             continue
 
@@ -566,7 +575,63 @@ async def download_file(download: Download):
         progress_args=tuple([download]),
         block=False,
     )
-    await result
+    try:
+        await result
+    except Exception as exc:
+        text = f"""
+            Download failed:
+            __{download.filepath}__
+
+            Error: {exc}
+        """
+        logging.error(dedent(text))
+        await _finalize_download(download, text, outcome="failed")
+        return
+
+    # Fallback path: occasionally Pyrogram can complete without delivering
+    # a final progress callback with received == total.
+    if download.id not in _get_chat_downloads(chat_id):
+        return
+
+    try:
+        final_size = os.path.getsize(file_path)
+    except OSError:
+        final_size = download.last_received or download.last_total or download.size
+
+    if final_size <= 0:
+        text = f"""
+            Download failed:
+            __{download.filepath}__
+
+            Error: download finished without a readable output file
+        """
+        logging.error(dedent(text))
+        await _finalize_download(download, text, outcome="failed")
+        return
+
+    finish = time()
+    if download.last_call == 0:
+        download.last_call = finish
+    download.last_update = finish
+    download.last_received = max(download.last_received, final_size)
+    download.last_total = max(download.last_total, final_size)
+    download.size = max(download.size, final_size)
+    download.last_percent = 100
+
+    elapsed = max(download.last_call - download.started, 1e-6)
+    speed = human_readable(download.last_received / elapsed)
+    text = f"""
+        File downloaded:
+        __{download.filepath}__ 
+
+        Started at __{ctime(download.started)}__ 
+        Finished at __{ctime(download.last_call)}__
+        Average download speed: __{speed}/s__
+    """
+    logging.warning(f"Progress final callback missing for id={download.id}; finalized via download_media fallback")
+    logging.info(text)
+    await _finalize_download(download, text, outcome="completed")
+    logging.info(f"Completed download id={download.id} ({download.filepath}) | elapsed={elapsed:.2f}s [fallback]")
 
 
 async def progress(received: int, total: int, download: Download):
@@ -614,7 +679,7 @@ async def progress(received: int, total: int, download: Download):
         download.last_received = received
         download.last_total = total
         return
-    percent = received / total * 100
+    percent = (received / total * 100) if total > 0 else 0
     if download.last_call == 0:
         delta_time = max(now - download.started, 1e-6)
         delta_bytes = received

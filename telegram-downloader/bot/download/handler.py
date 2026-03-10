@@ -3,8 +3,9 @@ import re
 import logging
 import os
 import os.path
+from itertools import count
 from os.path import isfile
-from random import choices, randint
+from random import choices
 from string import ascii_letters, digits
 from typing import Tuple
 
@@ -29,6 +30,11 @@ from .animeunity import (
 
 
 ANIMEUNITY_URL_FILTER = ANIMEUNITY_URL_PATTERN
+_DOWNLOAD_ID_SEQ = count(start=int(time() * 1_000_000))
+
+
+def _next_download_id() -> int:
+    return next(_DOWNLOAD_ID_SEQ)
 
 
 async def _resolve_base_path(
@@ -100,7 +106,7 @@ async def _enqueue_direct_url_download(
 ):
     waiting = None
     await enqueue_download(Download(
-        id=randint(1_000_000_000, 9_999_999_999),
+        id=_next_download_id(),
         filename=filename,
         filepath=filepath,
         from_message=msg,
@@ -157,7 +163,7 @@ async def add_file(_, msg: Message, chat: Chat):
                                     quote=True,
                                     parse_mode=ParseMode.MARKDOWN)
     await enqueue_download(Download(
-        id=randint(1_000_000_000, 9_999_999_999),
+        id=_next_download_id(),
         filename=filename,
         filepath=filepath,
         from_message=msg,

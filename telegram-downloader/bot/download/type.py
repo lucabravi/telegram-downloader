@@ -23,3 +23,4 @@ class Download:
     last_speed: float = 0
     last_avg_speed: float = 0
     last_percent: float = 0
+    finalized: bool = False
