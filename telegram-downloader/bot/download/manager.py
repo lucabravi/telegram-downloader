@@ -3,11 +3,13 @@ import math
 import os
 import os.path
 import shutil
+from dataclasses import dataclass
 from ..util import dedent
 from time import ctime, time
 from typing import List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
+from urllib.parse import parse_qs, urlparse
 import requests
 
 from pyrogram.enums import ParseMode
@@ -17,6 +19,7 @@ from pyrogram.types import (CallbackQuery, InlineKeyboardButton,
 from .. import app
 from ..rate_limiter import catch_rate_limit, enqueue_message, last_sent_message_id
 from ..util import human_readable
+from .animeunity import AnimeUnityError, refresh_animeunity_download_url
 from .type import Download
 from ..manage_path import VirtualFileSystem, BASE_FOLDER
 import asyncio
@@ -37,6 +40,18 @@ DIRECT_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 DIRECT_DOWNLOAD_MIN_MULTIPART_SIZE = 32 * 1024 * 1024
 DIRECT_DOWNLOAD_TARGET_PART_SIZE = 64 * 1024 * 1024
 DIRECT_DOWNLOAD_MAX_PARTS = 4
+DIRECT_DOWNLOAD_RETRY_DELAY = 5
+DIRECT_DOWNLOAD_RETRY_WARNING_THRESHOLD = 10
+DIRECT_DOWNLOAD_URL_REFRESH_MARGIN = 60
+RETRYABLE_DIRECT_HTTP_STATUS_CODES = {408, 425, 429}
+
+
+@dataclass(frozen=True)
+class DirectDownloadResult:
+    status: str
+    error: str | None = None
+    retryable: bool = False
+    refresh_source_url: bool = False
 
 
 def _get_chat_downloads(chat_id: int) -> dict[int, Download]:
@@ -59,9 +74,17 @@ def _format_status(downloads: list[Download]) -> str:
             )
         else:
             lines.append(f"Progress: {human_readable(received)} (starting or unknown total size)")
-        lines.append(
-            f"Download speed: {human_readable(download.last_speed)}/s | Average: {human_readable(download.last_avg_speed)}/s"
-        )
+        if download.retrying:
+            seconds_left = max(0, math.ceil(download.next_retry_at - time()))
+            lines.append(
+                f"Retrying in: {seconds_left}s | Consecutive failures: {download.retry_attempts}"
+            )
+            if download.last_error:
+                lines.append(f"Last error: {_short_error(download.last_error)}")
+        else:
+            lines.append(
+                f"Download speed: {human_readable(download.last_speed)}/s | Average: {human_readable(download.last_avg_speed)}/s"
+            )
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -146,6 +169,122 @@ class _DirectDownloadStopped(Exception):
     pass
 
 
+def _build_stop_keyboard(download_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("Stop", callback_data=f"stop {download_id}")
+    ]])
+
+
+def _short_error(error: str | None, limit: int = 180) -> str:
+    if not error:
+        return "unknown error"
+    compact = " ".join(error.split())
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit - 3]}..."
+
+
+def _classify_direct_download_exception(exc: Exception, download: Download) -> DirectDownloadResult:
+    refresh_source_url = False
+    retryable = False
+
+    if isinstance(exc, requests.HTTPError):
+        status_code = exc.response.status_code if exc.response is not None else None
+        retryable = (
+            status_code in RETRYABLE_DIRECT_HTTP_STATUS_CODES
+            or (status_code is not None and 500 <= status_code < 600)
+        )
+        refresh_source_url = (
+            download.animeunity_host is not None
+            and download.animeunity_episode_id is not None
+            and status_code in {401, 403}
+        )
+        retryable = retryable or refresh_source_url
+    elif isinstance(exc, (requests.Timeout, requests.ConnectionError, requests.RequestException)):
+        retryable = True
+
+    return DirectDownloadResult(
+        status="error",
+        error=str(exc),
+        retryable=retryable,
+        refresh_source_url=refresh_source_url,
+    )
+
+
+def _direct_url_is_expiring_soon(url: str | None) -> bool:
+    if not url:
+        return False
+    try:
+        query = parse_qs(urlparse(url).query or "")
+        expires_values = query.get("expires")
+        if not expires_values:
+            return False
+        expires_at = int(expires_values[0])
+        return expires_at <= int(time()) + DIRECT_DOWNLOAD_URL_REFRESH_MARGIN
+    except Exception:
+        return False
+
+
+async def _refresh_animeunity_source_url(download: Download) -> bool:
+    if not download.animeunity_host or download.animeunity_episode_id is None:
+        return False
+
+    try:
+        source_url = await asyncio.to_thread(
+            refresh_animeunity_download_url,
+            download.animeunity_host,
+            download.animeunity_episode_id,
+        )
+    except AnimeUnityError as exc:
+        logging.warning(f"Unable to refresh AnimeUnity URL for id={download.id}: {exc}")
+        return False
+    except Exception as exc:
+        logging.warning(f"Unexpected AnimeUnity URL refresh error for id={download.id}: {exc}")
+        return False
+
+    if not source_url:
+        return False
+
+    if source_url != download.source_url:
+        logging.info(f"Refreshed AnimeUnity direct URL for id={download.id}")
+    download.source_url = source_url
+    return True
+
+
+async def _wait_for_retry_or_stop(download: Download, delay: int) -> bool:
+    deadline = time() + delay
+    download.retrying = True
+    download.next_retry_at = deadline
+    download.last_speed = 0
+
+    while True:
+        if download.id in stop:
+            stop.remove(download.id)
+            download.retrying = False
+            download.next_retry_at = 0
+            return False
+        remaining = deadline - time()
+        if remaining <= 0:
+            download.retrying = False
+            download.next_retry_at = 0
+            return True
+        await asyncio.sleep(min(0.5, remaining))
+
+
+def _format_retry_text(download: Download, error: str | None) -> str:
+    message = f"""
+        Download temporarily unavailable:
+        __{download.filepath}__
+
+        Consecutive retries: __{download.retry_attempts}__
+        Next retry in: __{DIRECT_DOWNLOAD_RETRY_DELAY}s__
+        Last error: {_short_error(error)}
+    """
+    if download.retry_warning_sent:
+        message += "\n\nUse Stop to cancel automatic retries."
+    return dedent(message)
+
+
 def _update_direct_download_stats(download: Download, total: int, received: int, delta_bytes: int):
     now = time()
     elapsed = max(now - download.started, 1e-6)
@@ -189,7 +328,7 @@ def _download_direct_url_single_stream(
     headers: dict,
     response: requests.Response | None = None,
     total_hint: int = 0,
-) -> tuple[str, str | None]:
+) -> DirectDownloadResult:
     request_cm = requests.get(download.source_url, headers=headers, stream=True, timeout=30) if response is None else None
 
     try:
@@ -225,12 +364,12 @@ def _download_direct_url_single_stream(
         else:
             ok, error = _validate_expected_size(file_path, total)
             if not ok:
-                return "error", error
-        return "completed", None
+                return DirectDownloadResult(status="error", error=error, retryable=True)
+        return DirectDownloadResult(status="completed")
     except _DirectDownloadStopped:
-        return "stopped", None
+        return DirectDownloadResult(status="stopped")
     except Exception as exc:
-        return "error", str(exc)
+        return _classify_direct_download_exception(exc, download)
     finally:
         if request_cm is not None:
             request_cm.__exit__(None, None, None)
@@ -241,7 +380,7 @@ def _download_direct_url_multipart(
     file_path: str,
     headers: dict,
     total: int,
-) -> tuple[str, str | None]:
+) -> DirectDownloadResult:
     total_parts = min(
         DIRECT_DOWNLOAD_MAX_PARTS,
         max(2, math.ceil(total / DIRECT_DOWNLOAD_TARGET_PART_SIZE)),
@@ -302,7 +441,7 @@ def _download_direct_url_multipart(
 
         ok, error = _validate_expected_size(file_path, total)
         if not ok:
-            return "error", error
+            return DirectDownloadResult(status="error", error=error, retryable=True)
 
         finish = time()
         download.last_call = finish
@@ -311,11 +450,11 @@ def _download_direct_url_multipart(
         download.last_total = total
         download.size = total
         download.last_percent = 100
-        return "completed", None
+        return DirectDownloadResult(status="completed")
     except _DirectDownloadStopped:
-        return "stopped", None
+        return DirectDownloadResult(status="stopped")
     except Exception as exc:
-        return "error", str(exc)
+        return _classify_direct_download_exception(exc, download)
     finally:
         for part_path in part_files:
             if os.path.exists(part_path):
@@ -325,9 +464,9 @@ def _download_direct_url_multipart(
                     pass
 
 
-def _download_direct_url_sync(download: Download, file_path: str) -> tuple[str, str | None]:
+def _download_direct_url_sync(download: Download, file_path: str) -> DirectDownloadResult:
     if not download.source_url:
-        return "error", "missing source_url for direct download"
+        return DirectDownloadResult(status="error", error="missing source_url for direct download")
 
     headers = {
         "User-Agent": (
@@ -357,15 +496,15 @@ def _download_direct_url_sync(download: Download, file_path: str) -> tuple[str, 
                     f"Using multipart direct download id={download.id} parts<={DIRECT_DOWNLOAD_MAX_PARTS} total={total}"
                 )
                 response.close()
-                status, error = _download_direct_url_multipart(
+                result = _download_direct_url_multipart(
                     download=download,
                     file_path=file_path,
                     headers=headers,
                     total=total,
                 )
-                if status != "error":
-                    return status, error
-                logging.warning(f"Multipart failed for {download.filepath}, fallback to single stream: {error}")
+                if result.status != "error":
+                    return result
+                logging.warning(f"Multipart failed for {download.filepath}, fallback to single stream: {result.error}")
                 return _download_direct_url_single_stream(
                     download=download,
                     file_path=file_path,
@@ -381,7 +520,7 @@ def _download_direct_url_sync(download: Download, file_path: str) -> tuple[str, 
                 total_hint=total,
             )
     except Exception as exc:
-        return "error", str(exc)
+        return _classify_direct_download_exception(exc, download)
 
 
 async def status_loop():
@@ -422,6 +561,66 @@ async def status_loop():
                 await catch_rate_limit(current.edit, wait=False, text=text)
                 last_status_text[chat_id] = text
             logging.info(f"Download status for chat {chat_id}:\n{text}")
+
+
+async def _run_direct_download_with_retries(download: Download, file_path: str) -> DirectDownloadResult:
+    while True:
+        if download.id in stop:
+            return DirectDownloadResult(status="stopped")
+
+        if _direct_url_is_expiring_soon(download.source_url):
+            await _refresh_animeunity_source_url(download)
+
+        download.retrying = False
+        download.next_retry_at = 0
+        if download.retry_attempts > 0:
+            download.started = time()
+            download.last_call = 0
+            download.last_update = 0
+            download.last_speed = 0
+            download.last_avg_speed = 0
+        result = await asyncio.to_thread(_download_direct_url_sync, download, file_path)
+        if result.status != "error":
+            download.retrying = False
+            download.next_retry_at = 0
+            return result
+
+        download.last_error = result.error
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+        download.last_received = 0
+        download.last_total = 0
+        download.size = 0
+        download.last_percent = 0
+        download.last_speed = 0
+        download.last_avg_speed = 0
+
+        if not result.retryable:
+            return result
+
+        download.retry_attempts += 1
+        logging.warning(
+            f"Retryable direct download failure id={download.id} attempt={download.retry_attempts} "
+            f"path={download.filepath}: {_short_error(result.error)}"
+        )
+
+        if result.refresh_source_url or _direct_url_is_expiring_soon(download.source_url):
+            await _refresh_animeunity_source_url(download)
+
+        if download.retry_attempts >= DIRECT_DOWNLOAD_RETRY_WARNING_THRESHOLD and not download.retry_warning_sent:
+            download.retry_warning_sent = True
+            await _enqueue_edit_when_ready(
+                download,
+                text=_format_retry_text(download, result.error),
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=_build_stop_keyboard(download.id),
+            )
+
+        should_retry = await _wait_for_retry_or_stop(download, DIRECT_DOWNLOAD_RETRY_DELAY)
+        if not should_retry:
+            return DirectDownloadResult(status="stopped")
 
 
 async def run():
@@ -515,16 +714,16 @@ async def download_file(download: Download):
         download,
         text=f"Downloading __{download.filepath}__...",
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("Stop", callback_data=f"stop {download.id}")
-        ]])
+        reply_markup=_build_stop_keyboard(download.id)
     )
     download.started = time()
     if download.source == 'direct_url':
-        status, error = await asyncio.to_thread(_download_direct_url_sync, download, file_path)
+        result = await _run_direct_download_with_retries(download, file_path)
         running -= 1
 
-        if status == "completed":
+        if result.status == "completed":
+            download.retrying = False
+            download.next_retry_at = 0
             elapsed = max(download.last_call - download.started, 1e-6)
             speed = human_readable(download.last_received / elapsed)
             text = f"""
@@ -540,13 +739,15 @@ async def download_file(download: Download):
             logging.info(f"Completed direct download id={download.id} ({download.filepath}) | elapsed={elapsed:.2f}s")
             return
 
-        if status == "stopped":
+        if result.status == "stopped":
             if download.id in stop:
                 stop.remove(download.id)
             try:
                 os.remove(file_path)
             except OSError:
                 pass
+            download.retrying = False
+            download.next_retry_at = 0
             text = f"Download of __{download.filepath}__ stopped!"
             logging.info(text)
             await _finalize_download(download, text, outcome="stopped")
@@ -557,11 +758,13 @@ async def download_file(download: Download):
             os.remove(file_path)
         except OSError:
             pass
+        download.retrying = False
+        download.next_retry_at = 0
         text = f"""
             Download failed:
             __{download.filepath}__
 
-            Error: {error or 'unknown error'}
+            Error: {result.error or 'unknown error'}
         """
         logging.error(dedent(text))
         await _finalize_download(download, text, outcome="failed")

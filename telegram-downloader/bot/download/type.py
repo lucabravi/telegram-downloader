@@ -12,6 +12,8 @@ class Download:
     source: str = "telegram"
     source_url: str | None = None
     multipart_enabled: bool = True
+    animeunity_host: str | None = None
+    animeunity_episode_id: int | None = None
     progress_message: Message | None = None
     progress_message_future: asyncio.Future | None = None
     started: float = 0
@@ -23,4 +25,9 @@ class Download:
     last_speed: float = 0
     last_avg_speed: float = 0
     last_percent: float = 0
+    retry_attempts: int = 0
+    retrying: bool = False
+    retry_warning_sent: bool = False
+    next_retry_at: float = 0
+    last_error: str | None = None
     finalized: bool = False

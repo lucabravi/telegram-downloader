@@ -130,6 +130,20 @@ def resolve_animeunity_downloads(url: str) -> tuple[str, list[EpisodeDownload]]:
     return anime_name, downloads
 
 
+def refresh_animeunity_download_url(host: str, episode_id: int, fallback_link: str = "") -> str:
+    session = requests.Session()
+    session.headers.update(DEFAULT_HEADERS)
+    download_url = _resolve_episode_download_url(
+        session=session,
+        host=host,
+        episode_id=episode_id,
+        fallback_link=fallback_link,
+    )
+    if not download_url:
+        raise AnimeUnityError(f"Could not refresh direct download URL for episode {episode_id}.")
+    return download_url
+
+
 def split_series_and_trailing_season(title: str | None) -> tuple[str | None, int | None]:
     """Split titles like 'Kamisama Kiss Season 2' into ('Kamisama Kiss', 2)."""
     if title is None:

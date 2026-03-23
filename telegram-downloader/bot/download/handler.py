@@ -8,6 +8,7 @@ from os.path import isfile
 from random import choices
 from string import ascii_letters, digits
 from typing import Tuple
+from urllib.parse import urlparse
 
 from ..util import dedent
 from time import time
@@ -103,6 +104,8 @@ async def _enqueue_direct_url_download(
     filename: str,
     url: str,
     multipart_enabled: bool,
+    animeunity_host: str | None = None,
+    animeunity_episode_id: int | None = None,
 ):
     waiting = None
     await enqueue_download(Download(
@@ -114,6 +117,8 @@ async def _enqueue_direct_url_download(
         source='direct_url',
         source_url=url,
         multipart_enabled=multipart_enabled,
+        animeunity_host=animeunity_host,
+        animeunity_episode_id=animeunity_episode_id,
         progress_message_future=waiting
     ))
 
@@ -182,6 +187,8 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
     if path is None:
         return
 
+    animeunity_host = urlparse(anime_url).netloc
+
     try:
         anime_name, episodes = await asyncio.to_thread(resolve_animeunity_downloads, anime_url)
     except AnimeUnityError as exc:
@@ -230,6 +237,8 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
             filename=filename,
             url=episode.download_url,
             multipart_enabled=bool(getattr(chat, "multipart", True)),
+            animeunity_host=animeunity_host,
+            animeunity_episode_id=episode.episode_id,
         )
         queued += 1
         queued_episode_numbers.append(episode.episode_number)
