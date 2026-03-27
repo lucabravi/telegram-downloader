@@ -12,8 +12,10 @@ class Download:
     source: str = "telegram"
     source_url: str | None = None
     multipart_enabled: bool = True
+    animeunity_anime_url: str | None = None
     animeunity_host: str | None = None
     animeunity_episode_id: int | None = None
+    animeunity_episode_number: str | None = None
     progress_message: Message | None = None
     progress_message_future: asyncio.Future | None = None
     started: float = 0

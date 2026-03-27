@@ -195,8 +195,8 @@ def _classify_direct_download_exception(exc: Exception, download: Download) -> D
             or (status_code is not None and 500 <= status_code < 600)
         )
         refresh_source_url = (
-            download.animeunity_host is not None
-            and download.animeunity_episode_id is not None
+            download.animeunity_anime_url is not None
+            and (download.animeunity_episode_id is not None or download.animeunity_episode_number is not None)
             and status_code in {401, 403}
         )
         retryable = retryable or refresh_source_url
@@ -226,14 +226,17 @@ def _direct_url_is_expiring_soon(url: str | None) -> bool:
 
 
 async def _refresh_animeunity_source_url(download: Download) -> bool:
-    if not download.animeunity_host or download.animeunity_episode_id is None:
+    if not download.animeunity_anime_url:
+        return False
+    if download.animeunity_episode_id is None and download.animeunity_episode_number is None:
         return False
 
     try:
-        source_url = await asyncio.to_thread(
+        source_url, refreshed_episode_id = await asyncio.to_thread(
             refresh_animeunity_download_url,
-            download.animeunity_host,
+            download.animeunity_anime_url,
             download.animeunity_episode_id,
+            download.animeunity_episode_number,
         )
     except AnimeUnityError as exc:
         logging.warning(f"Unable to refresh AnimeUnity URL for id={download.id}: {exc}")
@@ -248,6 +251,7 @@ async def _refresh_animeunity_source_url(download: Download) -> bool:
     if source_url != download.source_url:
         logging.info(f"Refreshed AnimeUnity direct URL for id={download.id}")
     download.source_url = source_url
+    download.animeunity_episode_id = refreshed_episode_id
     return True
 
 
@@ -606,8 +610,9 @@ async def _run_direct_download_with_retries(download: Download, file_path: str) 
             f"path={download.filepath}: {_short_error(result.error)}"
         )
 
-        if result.refresh_source_url or _direct_url_is_expiring_soon(download.source_url):
-            await _refresh_animeunity_source_url(download)
+        refreshed_source = await _refresh_animeunity_source_url(download)
+        if refreshed_source:
+            logging.info(f"Retry attempt {download.retry_attempts} will use a freshly resolved AnimeUnity URL")
 
         if download.retry_attempts >= DIRECT_DOWNLOAD_RETRY_WARNING_THRESHOLD and not download.retry_warning_sent:
             download.retry_warning_sent = True

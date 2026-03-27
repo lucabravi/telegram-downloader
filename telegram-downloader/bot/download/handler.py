@@ -104,8 +104,10 @@ async def _enqueue_direct_url_download(
     filename: str,
     url: str,
     multipart_enabled: bool,
+    animeunity_anime_url: str | None = None,
     animeunity_host: str | None = None,
     animeunity_episode_id: int | None = None,
+    animeunity_episode_number: str | None = None,
 ):
     waiting = None
     await enqueue_download(Download(
@@ -117,8 +119,10 @@ async def _enqueue_direct_url_download(
         source='direct_url',
         source_url=url,
         multipart_enabled=multipart_enabled,
+        animeunity_anime_url=animeunity_anime_url,
         animeunity_host=animeunity_host,
         animeunity_episode_id=animeunity_episode_id,
+        animeunity_episode_number=animeunity_episode_number,
         progress_message_future=waiting
     ))
 
@@ -237,8 +241,10 @@ async def add_animeunity_url(_, msg: Message, chat: Chat):
             filename=filename,
             url=episode.download_url,
             multipart_enabled=bool(getattr(chat, "multipart", True)),
+            animeunity_anime_url=anime_url,
             animeunity_host=animeunity_host,
             animeunity_episode_id=episode.episode_id,
+            animeunity_episode_number=episode.episode_number,
         )
         queued += 1
         queued_episode_numbers.append(episode.episode_number)

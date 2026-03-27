@@ -130,18 +130,46 @@ def resolve_animeunity_downloads(url: str) -> tuple[str, list[EpisodeDownload]]:
     return anime_name, downloads
 
 
-def refresh_animeunity_download_url(host: str, episode_id: int, fallback_link: str = "") -> str:
+def refresh_animeunity_download_url(
+    anime_url: str,
+    episode_id: int | None = None,
+    episode_number: str | None = None,
+) -> tuple[str, int]:
+    host, anime_slug, _ = _parse_anime_url(anime_url)
+    info_api_url = f"https://{host}/info_api/{anime_slug}"
+
     session = requests.Session()
     session.headers.update(DEFAULT_HEADERS)
+
+    anime_info = _fetch_json(session, info_api_url)
+    episodes_count = int(anime_info.get("episodes_count") or 0)
+    if episodes_count <= 0:
+        raise AnimeUnityError("No episodes found while refreshing AnimeUnity direct URL.")
+
+    episode_infos = _fetch_episode_infos(session, info_api_url, episodes_count)
+    if not episode_infos:
+        raise AnimeUnityError("Unable to refresh AnimeUnity episode metadata.")
+
+    episode_info = _find_episode_info(
+        episode_infos,
+        episode_id=episode_id,
+        episode_number=episode_number,
+    )
+    if episode_info is None:
+        raise AnimeUnityError(
+            f"Could not find episode while refreshing AnimeUnity URL (id={episode_id}, number={episode_number})."
+        )
+
+    refreshed_episode_id = int(episode_info.get("id"))
     download_url = _resolve_episode_download_url(
         session=session,
         host=host,
-        episode_id=episode_id,
-        fallback_link=fallback_link,
+        episode_id=refreshed_episode_id,
+        fallback_link=str(episode_info.get("link") or ""),
     )
     if not download_url:
-        raise AnimeUnityError(f"Could not refresh direct download URL for episode {episode_id}.")
-    return download_url
+        raise AnimeUnityError(f"Could not refresh direct download URL for episode {refreshed_episode_id}.")
+    return download_url, refreshed_episode_id
 
 
 def split_series_and_trailing_season(title: str | None) -> tuple[str | None, int | None]:
@@ -179,6 +207,32 @@ def _fetch_episode_infos(session: requests.Session, info_api_url: str, episodes_
         all_episodes.extend(payload.get("episodes", []))
 
     return sorted(all_episodes, key=lambda ep: _safe_episode_number(ep.get("number")))
+
+
+def _find_episode_info(
+    episode_infos: list[dict],
+    episode_id: int | None = None,
+    episode_number: str | None = None,
+) -> dict | None:
+    if episode_id is not None:
+        for episode in episode_infos:
+            try:
+                if int(episode.get("id")) == int(episode_id):
+                    return episode
+            except Exception:
+                continue
+
+    if episode_number is not None:
+        target_key = _safe_episode_number(episode_number)
+        target_str = str(episode_number).strip()
+        for episode in episode_infos:
+            candidate_number = episode.get("number")
+            if _safe_episode_number(candidate_number) == target_key:
+                return episode
+            if str(candidate_number).strip() == target_str:
+                return episode
+
+    return None
 
 
 def _resolve_episode_download_url(
