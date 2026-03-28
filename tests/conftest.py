@@ -73,6 +73,10 @@ def _install_stub_pyrogram():
     enums_module.ParseMode = ParseMode
     sys.modules["pyrogram.enums"] = enums_module
 
+    parse_mode_module = types.ModuleType("pyrogram.enums.parse_mode")
+    parse_mode_module.ParseMode = ParseMode
+    sys.modules["pyrogram.enums.parse_mode"] = parse_mode_module
+
     types_module = types.ModuleType("pyrogram.types")
 
     class Message:
@@ -101,6 +105,7 @@ def _install_stub_bot_package():
     bot_module = types.ModuleType("bot")
     bot_module.__path__ = [str(BOT_ROOT)]
     bot_module.app = types.SimpleNamespace(max_concurrent_transmissions=3)
+    bot_module.BASE_FOLDER = "/tmp"
     sys.modules["bot"] = bot_module
 
     download_module = types.ModuleType("bot.download")
@@ -134,6 +139,23 @@ def _install_stub_bot_package():
     manage_path_module.VirtualFileSystem = VirtualFileSystem
     sys.modules["bot.manage_path"] = manage_path_module
 
+    sysinfo_module = types.ModuleType("bot.sysinfo")
+    sysinfo_module.disk_usage = lambda root: types.SimpleNamespace(
+        used="0",
+        capacity="0",
+        percent="0%",
+        free="0",
+    )
+    sys.modules["bot.sysinfo"] = sysinfo_module
+
+    db_module = types.ModuleType("bot.db")
+
+    class Chat:
+        pass
+
+    db_module.Chat = Chat
+    sys.modules["bot.db"] = db_module
+
 
 def _load_module(full_name: str, path: Path):
     spec = importlib.util.spec_from_file_location(full_name, path)
@@ -145,16 +167,42 @@ def _load_module(full_name: str, path: Path):
 
 
 def load_download_modules():
+    modules = load_bot_modules("download.animeunity", "download.type", "download.manager")
+    return {
+        "animeunity": modules["download.animeunity"],
+        "type": modules["download.type"],
+        "manager": modules["download.manager"],
+    }
+
+
+def load_bot_modules(*module_names):
     _clear_test_modules()
     _install_stub_requests()
     _install_stub_pyrogram()
     _install_stub_bot_package()
 
-    animeunity = _load_module("bot.download.animeunity", BOT_ROOT / "download" / "animeunity.py")
-    download_type = _load_module("bot.download.type", BOT_ROOT / "download" / "type.py")
-    manager = _load_module("bot.download.manager", BOT_ROOT / "download" / "manager.py")
-    return {
-        "animeunity": animeunity,
-        "type": download_type,
-        "manager": manager,
+    available_modules = {
+        "manage_path": BOT_ROOT / "manage_path.py",
+        "commands": BOT_ROOT / "commands.py",
+        "download.animeunity": BOT_ROOT / "download" / "animeunity.py",
+        "download.type": BOT_ROOT / "download" / "type.py",
+        "download.manager": BOT_ROOT / "download" / "manager.py",
+        "download.handler": BOT_ROOT / "download" / "handler.py",
     }
+    load_order = [
+        "manage_path",
+        "download.animeunity",
+        "download.type",
+        "download.manager",
+        "download.handler",
+        "commands",
+    ]
+
+    loaded = {}
+    for name in load_order:
+        if name not in available_modules:
+            continue
+        full_name = f"bot.{name}"
+        loaded[name] = _load_module(full_name, available_modules[name])
+
+    return {name: loaded[name] for name in module_names}

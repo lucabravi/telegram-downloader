@@ -328,5 +328,5 @@ def extract_numbers_from_title(title) -> Tuple[int | None, int | None, bool]:
             f'extract_numbers_from_title | s_number: {s_number} - ep_number: {ep_number} - ova_number: {ova_number}')
         return s_number, ep_number or ova_number, ova_number is not None
     except Exception as e:
-        logging.warn(f'extract_numbers_from_title | {e}')
+        logging.warning(f'extract_numbers_from_title | {e}')
     return None, None, False
