@@ -6,6 +6,7 @@ Quick context
 - Source code lives in `telegram-downloader/`.
 - Entry point: `python -m bot` from `telegram-downloader/`.
 - Requirements file: `telegram-downloader/requirements.txt`.
+- Dev test requirements: `telegram-downloader/requirements-dev.txt`.
 - SQLite DB path: `/db/database_file.db`.
 - Downloads root default: `/data` (env `DOWNLOAD_FOLDER`).
 
@@ -35,6 +36,12 @@ Logging
 - Pyrogram INFO logs are suppressed; warnings/errors still show.
 - Download status is logged to console on each status update.
 - The “Max downloads running” log is throttled.
+
+Testing
+- Test suite lives in `tests/`.
+- Preferred runner is `python3 -m pytest`.
+- Install test dependencies with `python3 -m pip install -r telegram-downloader/requirements-dev.txt`.
+- The pytest suite uses isolated imports/stubs for bot modules, so it does not need real Telegram credentials to exercise parsing/retry logic.
 
 Notes
 - Python target is 3.14 in Docker.
