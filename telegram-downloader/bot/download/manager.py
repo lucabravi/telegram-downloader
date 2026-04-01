@@ -44,6 +44,8 @@ DIRECT_DOWNLOAD_RETRY_DELAY = 5
 DIRECT_DOWNLOAD_RETRY_WARNING_THRESHOLD = 10
 DIRECT_DOWNLOAD_URL_REFRESH_MARGIN = 60
 RETRYABLE_DIRECT_HTTP_STATUS_CODES = {408, 425, 429}
+TELEGRAM_OUTPUT_WAIT_TIMEOUT = 3.0
+TELEGRAM_OUTPUT_WAIT_INTERVAL = 0.1
 
 
 @dataclass(frozen=True)
@@ -287,6 +289,40 @@ def _format_retry_text(download: Download, error: str | None) -> str:
     if download.retry_warning_sent:
         message += "\n\nUse Stop to cancel automatic retries."
     return dedent(message)
+
+
+def _telegram_output_candidate_paths(download_result, requested_path: str) -> list[str]:
+    paths = [requested_path]
+    if isinstance(download_result, (str, os.PathLike)):
+        result_path = os.fspath(download_result)
+        if result_path not in paths:
+            paths.append(result_path)
+    return paths
+
+
+async def _wait_for_telegram_output_file(download: Download, download_result, requested_path: str) -> tuple[str | None, int]:
+    candidate_paths = _telegram_output_candidate_paths(download_result, requested_path)
+    deadline = time() + TELEGRAM_OUTPUT_WAIT_TIMEOUT
+    last_known_size = max(download.last_received, download.last_total, download.size)
+
+    while True:
+        if download.finalized:
+            return None, 0
+
+        for path in candidate_paths:
+            if not os.path.exists(path):
+                continue
+            try:
+                file_size = os.path.getsize(path)
+            except OSError:
+                continue
+            if file_size > 0:
+                return path, file_size
+
+        if time() >= deadline:
+            return None, last_known_size
+
+        await asyncio.sleep(TELEGRAM_OUTPUT_WAIT_INTERVAL)
 
 
 def _update_direct_download_stats(download: Download, total: int, received: int, delta_bytes: int):
@@ -784,7 +820,7 @@ async def download_file(download: Download):
         block=False,
     )
     try:
-        await result
+        download_result = await result
     except Exception as exc:
         text = f"""
             Download failed:
@@ -798,13 +834,14 @@ async def download_file(download: Download):
 
     # Fallback path: occasionally Pyrogram can complete without delivering
     # a final progress callback with received == total.
-    if download.id not in _get_chat_downloads(chat_id):
+    if download.finalized or download.id not in _get_chat_downloads(chat_id):
         return
 
-    try:
-        final_size = os.path.getsize(file_path)
-    except OSError:
-        final_size = download.last_received or download.last_total or download.size
+    resolved_path, final_size = await _wait_for_telegram_output_file(download, download_result, file_path)
+    if download.finalized or download.id not in _get_chat_downloads(chat_id):
+        return
+
+    running -= 1
 
     if final_size <= 0:
         text = f"""
@@ -836,7 +873,10 @@ async def download_file(download: Download):
         Finished at __{ctime(download.last_call)}__
         Average download speed: __{speed}/s__
     """
-    logging.warning(f"Progress final callback missing for id={download.id}; finalized via download_media fallback")
+    logging.warning(
+        f"Progress final callback missing for id={download.id}; "
+        f"finalized via download_media fallback using {resolved_path or file_path}"
+    )
     logging.info(text)
     await _finalize_download(download, text, outcome="completed")
     logging.info(f"Completed download id={download.id} ({download.filepath}) | elapsed={elapsed:.2f}s [fallback]")
