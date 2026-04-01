@@ -811,16 +811,14 @@ async def download_file(download: Download):
         await _finalize_download(download, text, outcome="failed")
         return
 
-    # result = await app.download_media(
-    result = app.download_media(
-        message=download.from_message,
-        file_name=file_path,
-        progress=progress,
-        progress_args=tuple([download]),
-        block=False,
-    )
     try:
-        download_result = await result
+        download_result = await app.download_media(
+            message=download.from_message,
+            file_name=file_path,
+            progress=progress,
+            progress_args=tuple([download]),
+            block=True,
+        )
     except Exception as exc:
         text = f"""
             Download failed:

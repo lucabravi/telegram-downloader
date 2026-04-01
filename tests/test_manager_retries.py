@@ -125,6 +125,7 @@ def test_download_file_telegram_fallback_finalizes_when_result_path_is_readable(
     manager.active_downloads.clear()
 
     captured = {}
+    download_media_kwargs = {}
     output_path = tmp_path / "telegram-output.bin"
     output_path.write_bytes(b"payload")
 
@@ -140,6 +141,7 @@ def test_download_file_telegram_fallback_finalizes_when_result_path_is_readable(
         return str(output_path), output_path.stat().st_size
 
     def fake_download_media(**_kwargs):
+        download_media_kwargs.update(_kwargs)
         async def runner():
             return str(output_path)
         return runner()
@@ -160,4 +162,5 @@ def test_download_file_telegram_fallback_finalizes_when_result_path_is_readable(
 
     assert captured["outcome"] == "completed"
     assert "File downloaded" in captured["text"]
+    assert download_media_kwargs["block"] is True
     assert manager.running == 0
